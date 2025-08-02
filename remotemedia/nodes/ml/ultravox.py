@@ -1,6 +1,7 @@
 import asyncio
 import numpy as np
 import logging
+import hashlib
 from typing import Optional, Any, AsyncGenerator
 from datetime import datetime, timedelta
 
@@ -122,7 +123,7 @@ class UltravoxNode(Node):
                         if 'timestamp' in msg:
                             msg_time = datetime.fromisoformat(msg['timestamp'])
                             if msg_time >= cutoff_time:
-                                # Add turn without timestamp for model (it doesn't need it)
+                                # Add turn without audio - previous audio is already tokenized in content
                                 turns.append({
                                     "role": msg["role"],
                                     "content": msg["content"]
@@ -133,33 +134,90 @@ class UltravoxNode(Node):
                 
                 logger.info(f"UltravoxNode: Using {len(turns)} turns in conversation context for session {session_id} "
                             f"(from last {self.conversation_history_minutes} minutes)")
+                # Debug: Log the actual conversation turns
+                logger.info("=== CONVERSATION HISTORY DEBUG ===")
+                for i, turn in enumerate(turns):
+                    content = turn.get('content', '')
+                    # Show more content for debugging
+                    content_preview = content[:200] + "..." if len(content) > 200 else content
+                    logger.info(f"Turn {i}: role='{turn.get('role')}', content='{content_preview}'")
         
         try:
-            # Include user text if provided (for hybrid audio+text input)
+            # Build input for model using the Ultravox pipeline format
+            # The pipeline expects:
+            # - turns: conversation history
+            # - audio: current audio numpy array
+            # - sampling_rate: audio sample rate
+            
+            # If user provided text, add it to the current turn
+            if user_text:
+                # Add a new user turn with the text
+                turns.append({
+                    "role": "user",
+                    "content": user_text
+                })
+            # The pipeline will automatically handle the audio and add <|audio|> token
+            
             input_data = {
-                'audio': audio_data, 
-                'turns': turns, 
+                'turns': turns,
+                'audio': audio_data,
                 'sampling_rate': self.sample_rate
             }
-            if user_text:
-                input_data['text'] = user_text
             
+            # Debug: Log what we're sending to the model
+            logger.info("=== SENDING TO PIPELINE ===")
+            logger.info(f"Audio shape: {audio_data.shape if audio_data is not None else None}")
+            logger.info(f"Audio dtype: {audio_data.dtype if audio_data is not None else None}")
+            logger.info(f"Audio range: [{audio_data.min():.6f}, {audio_data.max():.6f}]" if audio_data is not None else "No audio")
+            logger.info(f"Turns count: {len(turns)}")
+            logger.info(f"Input data keys: {list(input_data.keys())}")
+            
+            # Log the exact input structure
+            logger.info("Full input_data structure:")
+            for key, value in input_data.items():
+                if key == 'audio':
+                    logger.info(f"  {key}: ndarray shape={value.shape if hasattr(value, 'shape') else 'N/A'}")
+                elif key == 'turns':
+                    logger.info(f"  {key}: {len(value)} turns")
+                    for idx, turn in enumerate(value[-3:]):  # Show last 3 turns
+                        logger.info(f"    Recent turn {idx}: {turn}")
+                else:
+                    logger.info(f"  {key}: {value}")
+            
+            # Try to preview what the chat template will produce
+            try:
+                if hasattr(self.llm_pipeline, 'tokenizer') and hasattr(self.llm_pipeline.tokenizer, 'apply_chat_template'):
+                    preview_text = self.llm_pipeline.tokenizer.apply_chat_template(
+                        turns, add_generation_prompt=True, tokenize=False
+                    )
+                    logger.info("=== CHAT TEMPLATE PREVIEW ===")
+                    logger.info(f"Template output (first 1000 chars): {preview_text[:1000]}...")
+                    if len(preview_text) > 1000:
+                        logger.info(f"... (truncated, total length: {len(preview_text)})")
+            except Exception as e:
+                logger.debug(f"Could not preview chat template: {e}")
+            
+            # Call the pipeline with the correct format
             result = await asyncio.to_thread(
                 self.llm_pipeline,
                 input_data,
                 max_new_tokens=self.max_new_tokens
             )
-            logger.info(f"Ultravox result: {result}")
+            logger.info("=== PIPELINE RESULT ===")
+            logger.info(f"Result type: {type(result)}")
+            if isinstance(result, str):
+                logger.info(f"Result (first 500 chars): {result[:500]}...")
+            else:
+                logger.info(f"Result: {result}")
             
             # Extract response
-            response = None
-            if isinstance(result, list) and result and isinstance(result[0], dict) and 'generated_text' in result[0]:
-                response = result[0]['generated_text']
-            elif isinstance(result, str):
+            # The Ultravox pipeline postprocesses to return just the generated text
+            if isinstance(result, str):
                 response = result
-
-            if not isinstance(response, str):
-                logger.warning(f"Model did not return an expected string response. Full result: {result}")
+            elif isinstance(result, list) and result and isinstance(result[0], dict) and 'generated_text' in result[0]:
+                response = result[0]['generated_text']
+            else:
+                logger.warning(f"Model did not return an expected response format. Full result: {result}")
                 return None
 
             response = response.strip()
@@ -173,9 +231,12 @@ class UltravoxNode(Node):
                     current_time = datetime.now()
                     
                     # Add new interaction with timestamps
+                    # Note: We don't store <|audio|> in history to avoid multiple audio placeholders
+                    # The pipeline only expects one <|audio|> token for the current audio
+                    user_content = user_text if user_text else f"[Audio input: {len(audio_data) / self.sample_rate:.1f}s]"
                     history.append({
                         "role": "user", 
-                        "content": user_text or f"[Audio input: {len(audio_data) / self.sample_rate:.1f}s]",
+                        "content": user_content,
                         "timestamp": current_time.isoformat()
                     })
                     history.append({
