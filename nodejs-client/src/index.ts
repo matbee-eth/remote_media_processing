@@ -12,6 +12,8 @@ export { RemoteProxyClient } from './client';
 // Export helper functions and classes
 export {
   withRemoteProxy,
+  withRemoteExecutor,
+  ExecuteFunction,
   RemoteNodes,
   NodePipeline,
   batchProcess,

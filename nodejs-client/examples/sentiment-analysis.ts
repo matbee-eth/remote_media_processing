@@ -4,7 +4,7 @@
  * Demonstrates using Hugging Face transformers for sentiment analysis.
  */
 
-import { withRemoteProxy, RemoteNodes } from '../src';
+import { withRemoteProxy, withRemoteExecutor, RemoteNodes } from '../src';
 import {
   NodeType
 } from '../generated-types';
@@ -111,11 +111,46 @@ async function advancedSentimentAnalysis() {
   );
 }
 
+// New simplified interface example
+async function simplifiedSentimentAnalysis() {
+  const reviews = [
+    "This product is absolutely amazing! Best purchase I've ever made.",
+    "Terrible quality, broke after one day. Very disappointed.",
+    "It's okay, nothing special but does the job."
+  ];
+
+  await withRemoteExecutor(
+    { host: 'localhost', port: 50052 },
+    async (execute) => {
+      console.log('\n✨ Simplified Interface Example\n');
+
+      // Direct execution without creating proxies
+      for (const review of reviews) {
+        const results = await execute(
+          NodeType.TransformersPipelineNode,
+          {
+            task: 'sentiment-analysis',
+            model: 'distilbert-base-uncased-finetuned-sst-2-english'
+          },
+          review
+        );
+
+        const [result] = results;
+        const emoji = result.label === 'POSITIVE' ? '😊' : '😞';
+        const percentage = (result.score * 100).toFixed(1);
+
+        console.log(`${emoji} ${result.label} (${percentage}% confidence)`);
+        console.log(`   "${review}"\n`);
+      }
+    }
+  );
+}
+
 // Run examples
 async function main() {
   try {
     await analyzeSentiments();
-    // Uncomment to run advanced example
+    await simplifiedSentimentAnalysis();
     await advancedSentimentAnalysis();
   } catch (error) {
     console.error('Error:', error);

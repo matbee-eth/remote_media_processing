@@ -6,7 +6,31 @@ import { RemoteProxyClient } from './client';
 import { RemoteExecutorConfig, RemoteNodeProxy, NodeConfig } from './types';
 
 /**
- * Helper function for Python-style async with pattern
+ * Execute function interface for simplified node execution
+ */
+export interface ExecuteFunction {
+  /**
+   * Execute a node with the given type and configuration
+   * @param nodeType The type of node to execute
+   * @param config Node configuration parameters
+   * @param data Input data to process
+   * @returns Promise resolving to the processed output
+   */
+  <T extends import('../generated-types').NodeType>(
+    nodeType: T,
+    config: Partial<import('../generated-types').NodeMap[T]>,
+    data: any
+  ): Promise<any>;
+
+  /**
+   * Execute a node with the given type and configuration (legacy string-based)
+   * @deprecated Use NodeType enum instead of string for better type safety
+   */
+  (nodeType: string, config: NodeConfig, data: any): Promise<any>;
+}
+
+/**
+ * Helper function for Python-style async with pattern - original interface
  * 
  * @example
  * ```typescript
@@ -30,10 +54,43 @@ export async function withRemoteProxy<T>(
 }
 
 /**
+ * Helper function for simplified node execution interface
+ * 
+ * @example
+ * ```typescript
+ * await withRemoteExecutor({ host: 'localhost', port: 50052 }, async (execute) => {
+ *   const result = await execute(NodeType.TransformersPipelineNode, {
+ *     task: 'sentiment-analysis',
+ *     model: 'distilbert-base-uncased-finetuned-sst-2-english'
+ *   }, "This is amazing!");
+ * });
+ * ```
+ */
+export async function withRemoteExecutor<T>(
+  config: RemoteExecutorConfig,
+  callback: (execute: ExecuteFunction) => Promise<T>
+): Promise<T> {
+  const client = new RemoteProxyClient(config);
+  try {
+    await client.connect();
+
+    // Create the simplified execute function
+    const execute: ExecuteFunction = async (nodeType: any, nodeConfig: any, data: any) => {
+      const proxy = await client.createNodeProxy(nodeType, nodeConfig);
+      return await proxy.process(data);
+    };
+
+    return await callback(execute);
+  } finally {
+    await client.close();
+  }
+}
+
+/**
  * Convenience class for common node types
  */
 export class RemoteNodes {
-  constructor(private client: RemoteProxyClient) {}
+  constructor(private client: RemoteProxyClient) { }
 
   /**
    * Create an audio transformation node
@@ -168,7 +225,7 @@ export async function batchProcess<T, R>(
 ): Promise<R[]> {
   const { batchSize = 10, parallel = true, onProgress } = options;
   const results: R[] = [];
-  
+
   if (parallel) {
     // Process in parallel batches
     for (let i = 0; i < items.length; i += batchSize) {
@@ -177,7 +234,7 @@ export async function batchProcess<T, R>(
         batch.map(item => node.process(item))
       );
       results.push(...batchResults);
-      
+
       if (onProgress) {
         onProgress(results.length, items.length);
       }
@@ -187,13 +244,13 @@ export async function batchProcess<T, R>(
     for (let i = 0; i < items.length; i++) {
       const result = await node.process(items[i]);
       results.push(result);
-      
+
       if (onProgress) {
         onProgress(i + 1, items.length);
       }
     }
   }
-  
+
   return results;
 }
 
@@ -226,14 +283,14 @@ export async function retryOperation<T>(
       return await operation();
     } catch (error: any) {
       lastError = error;
-      
+
       if (attempt === maxAttempts || !shouldRetry(error)) {
         throw error;
       }
 
       // Wait before retrying
       await new Promise(resolve => setTimeout(resolve, delay));
-      
+
       // Increase delay for next attempt
       delay = Math.min(delay * backoffMultiplier, maxDelay);
     }
