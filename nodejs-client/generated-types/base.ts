@@ -1,6 +1,6 @@
 /**
  * Base TypeScript interfaces for RemoteMedia Processing SDK
- * Generated at: 2025-08-03T01:32:49.850876
+ * Generated at: 2025-08-03T01:45:43.781111
  * Service version: 0.1.0
  */
 
@@ -67,6 +67,7 @@ export interface NodeParameter {
   required: boolean;
   default_value?: any;
   description?: string;
+  source_class?: string;
 }
 
 export type SerializationFormat = 'json' | 'pickle';

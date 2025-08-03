@@ -6,9 +6,13 @@
 
 import {
   withRemoteProxy,
-  RemoteNodes,
   batchProcess
 } from '../src';
+import {
+  NodeType,
+  TextProcessorNodeTextProcessorInput,
+  TextProcessorNodeTextProcessorOutput
+} from '../generated-types';
 
 async function textProcessingPipeline() {
   console.log('🔗 Text Processing Pipeline Example\n');
@@ -16,14 +20,12 @@ async function textProcessingPipeline() {
   await withRemoteProxy(
     { host: 'localhost', port: 50052 },
     async (client) => {
-      const nodes = new RemoteNodes(client);
-
-      // Step 1: Create individual nodes
-      const textProcessor = await nodes.textProcessor();
-      const sentimentAnalyzer = await nodes.transformersPipeline({
+      // Step 1: Create individual nodes with type safety
+      const textProcessor = await client.createNodeProxy(NodeType.TextProcessorNode);
+      const sentimentAnalyzer = await client.createNodeProxy(NodeType.TransformersPipelineNode, {
         task: 'sentiment-analysis'
       });
-      const textGenerator = await nodes.transformersPipeline({
+      const textGenerator = await client.createNodeProxy(NodeType.TransformersPipelineNode, {
         task: 'text-generation',
         model: 'gpt2',
         model_kwargs: {
@@ -40,19 +42,27 @@ async function textProcessingPipeline() {
       console.log(`Input: "${inputText}"`);
 
       // Process through text processor
-      const processed = await textProcessor.process({
+      const textInput: TextProcessorNodeTextProcessorInput = {
         text: inputText,
         operations: ['uppercase']
-      });
+      };
+      const processed: TextProcessorNodeTextProcessorOutput = await textProcessor.process(textInput);
       console.log(`After text processing: "${processed.results.uppercase}"`);
 
       // Analyze sentiment
-      const sentiment = await sentimentAnalyzer.process(processed.results.uppercase);
+      interface SentimentResult {
+        label: string;
+        score: number;
+      }
+      const sentiment: SentimentResult[] = await sentimentAnalyzer.process(processed.results.uppercase);
       console.log(`Sentiment analysis:`, sentiment);
 
       // Generate continuation
       const prompt = processed.results.uppercase + " because it";
-      const generated = await textGenerator.process(prompt);
+      interface GenerationResult {
+        generated_text: string;
+      }
+      const generated: GenerationResult[] = await textGenerator.process(prompt);
       console.log(`Generated text: "${generated[0].generated_text}"`);
 
       // Example 2: Using NodePipeline helper
@@ -68,7 +78,7 @@ async function textProcessingPipeline() {
 
       // Process each text through sentiment analysis
       for (const text of texts) {
-        const result = await sentimentAnalyzer.process(text);
+        const result: SentimentResult[] = await sentimentAnalyzer.process(text);
         console.log(`"${text}" → ${result[0].label} (${(result[0].score * 100).toFixed(1)}%)`);
       }
     }
@@ -82,12 +92,12 @@ async function multiModalPipeline() {
     { host: 'localhost', port: 50052 },
     async (client) => {
       // Create nodes for different modalities
-      const audioTransform = await client.createNodeProxy('AudioTransform', {
+      const audioTransform = await client.createNodeProxy(NodeType.AudioTransform, {
         sampleRate: 16000,
         channels: 1
       });
 
-      const textProcessor = await client.createNodeProxy('TextProcessorNode');
+      const textProcessor = await client.createNodeProxy(NodeType.TextProcessorNode);
 
       // Example: Process audio metadata
       console.log('🎵 Processing audio with metadata:\n');
@@ -110,10 +120,11 @@ async function multiModalPipeline() {
 
       // Process metadata text
       if (audioData.metadata?.title) {
-        const processedMeta = await textProcessor.process({
+        const metaInput: TextProcessorNodeTextProcessorInput = {
           text: audioData.metadata.title,
           operations: ['uppercase', 'word_count']
-        });
+        };
+        const processedMeta: TextProcessorNodeTextProcessorOutput = await textProcessor.process(metaInput);
         console.log('\nMetadata processed:');
         console.log(`  Title: "${processedMeta.results.uppercase}"`);
         console.log(`  Words: ${processedMeta.results.word_count}`);
@@ -128,10 +139,8 @@ async function batchProcessingExample() {
   await withRemoteProxy(
     { host: 'localhost', port: 50052 },
     async (client) => {
-      const nodes = new RemoteNodes(client);
-
-      // Create a sentiment analyzer
-      const analyzer = await nodes.transformersPipeline({
+      // Create a sentiment analyzer with type safety
+      const analyzer = await client.createNodeProxy(NodeType.TransformersPipelineNode, {
         task: 'sentiment-analysis'
       });
 
@@ -152,10 +161,14 @@ async function batchProcessingExample() {
       console.log(`Processing ${dataset.length} items in batches...\n`);
 
       // Define the sentiment analysis result type
-      type SentimentResult = Array<{ label: string; score: number }>;
+      interface SentimentResult {
+        label: string;
+        score: number;
+      }
+      type SentimentResults = SentimentResult[];
 
       // Process with progress tracking
-      const results = await batchProcess<string, SentimentResult>(analyzer, dataset, {
+      const results = await batchProcess<string, SentimentResults>(analyzer, dataset, {
         batchSize: 3,
         parallel: true,
         onProgress: (completed, total) => {

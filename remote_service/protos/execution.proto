@@ -191,6 +191,7 @@ message ParameterInfo {
   string description = 3;         // Parameter description
   bool required = 4;              // Whether parameter is required
   string default_value = 5;       // Default value (if any)
+  string source_class = 6;        // Class that defined this parameter
 }
 
 // Information about an active session

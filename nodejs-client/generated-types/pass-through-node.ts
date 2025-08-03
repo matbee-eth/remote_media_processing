@@ -6,7 +6,7 @@
 /**
  * Error output structure for BufferNode.
  */
-export interface BufferError {
+export interface PassThroughNodeBufferError {
   error: string;
   input: any;
   processed_by: string;
@@ -15,7 +15,7 @@ export interface BufferError {
 /**
  * Output data structure for BufferNode.
  */
-export interface BufferOutput {
+export interface PassThroughNodeBufferOutput {
   buffer: Array<any>;
   count: number;
   processed_by: string;
@@ -24,7 +24,7 @@ export interface BufferOutput {
 /**
  * Error output structure for PassThroughNode.
  */
-export interface PassThroughError {
+export interface PassThroughNodePassThroughError {
   error: string;
   input: any;
   processed_by: string;
@@ -46,7 +46,7 @@ export interface PassThroughNode {
   name?: string;
   /** Time-to-live for session states (default: 24 hours) */
   state_ttl?: any;
-  args?: any;
+  args: any;
 
   // Available methods
   /** Clean up resources used by the node. */
@@ -63,8 +63,8 @@ export interface PassThroughNode {
   initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Pass data through unchanged. */
-  process(data: any): any | PassThroughError;
+  /** Process input data through this node. */
+  process(data: any): any;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

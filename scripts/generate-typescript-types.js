@@ -187,20 +187,11 @@ export type SerializationFormat = 'json' | 'pickle';
     const nodeTypeEnum = this.generateNodeTypeEnum(nodesByCategory);
     await fs.writeFile(path.join(OUTPUT_DIR, 'node-types.ts'), nodeTypeEnum);
 
-    // Generate configuration interfaces for each node
+    // Generate unified interfaces for each node (TypedDict + main interface)
     for (const node of nodes) {
-      const configInterface = this.generateNodeConfigInterface(node);
-      const filename = `${this.kebabCase(node.node_type)}-config.ts`;
-      await fs.writeFile(path.join(OUTPUT_DIR, filename), configInterface);
-    }
-
-    // Generate TypedDict interfaces for each node
-    for (const node of nodes) {
-      if (node.types && node.types.length > 0) {
-        const typedDictInterfaces = this.generateTypedDictInterfaces(node);
-        const filename = `${this.kebabCase(node.node_type)}.ts`;
-        await fs.writeFile(path.join(OUTPUT_DIR, filename), typedDictInterfaces);
-      }
+      const nodeInterfaces = this.generateTypedDictInterfaces(node);
+      const filename = `${this.kebabCase(node.node_type)}.ts`;
+      await fs.writeFile(path.join(OUTPUT_DIR, filename), nodeInterfaces);
     }
 
     // Generate unified config types
@@ -238,40 +229,7 @@ export enum NodeType {
     return enumContent;
   }
 
-  generateNodeConfigInterface(node) {
-    const { node_type, description, parameters = [] } = node;
 
-    let content = `/**
- * Configuration interface for ${node_type}
- * ${description || `Configuration for ${node_type} node`}
- */
-export interface ${node_type}Config {
-`;
-
-    if (parameters.length === 0) {
-      content += '  // No configuration parameters\n';
-    } else {
-      parameters.forEach(param => {
-        const { name, type, required = true, description = '', default_value } = param;
-        const tsType = this.pythonToTypeScriptType(type);
-        const optional = required ? '' : '?';
-
-        // Add JSDoc comment for parameter
-        if (description) {
-          content += `  /** ${description}`;
-          if (default_value !== undefined && !required) {
-            content += ` (default: ${JSON.stringify(default_value)})`;
-          }
-          content += ' */\n';
-        }
-
-        content += `  ${name}${optional}: ${tsType};\n`;
-      });
-    }
-
-    content += '}\n';
-    return content;
-  }
 
   generateTypedDictInterfaces(node) {
     const { node_type, types = [] } = node;
@@ -286,11 +244,13 @@ export interface ${node_type}Config {
     types.forEach(typedDict => {
       const { name, description, fields = [] } = typedDict;
 
-      // Generate interface
+      // Generate interface with node-specific prefix to avoid naming conflicts
+      const uniqueName = name.startsWith(node_type) ? name : `${node_type}${name}`;
+
       content += `/**
  * ${description}
  */
-export interface ${name} {
+export interface ${uniqueName} {
 `;
 
       if (fields.length === 0) {
@@ -308,7 +268,88 @@ export interface ${name} {
       content += '}\n\n';
     });
 
-    // Interfaces are already exported with 'export interface', no need for additional exports
+    // Add main node interface
+    content += `
+/**
+ * ${node_type} Interface
+ * 
+ * ${node.description || `Interface for ${node_type} node`}
+ */
+export interface ${node_type} {
+  // Configuration properties (constructor arguments)`;
+
+    // Add constructor parameters
+    if (node.parameters && node.parameters.length > 0) {
+      node.parameters.forEach(param => {
+        const { name, type, required = true, description = '', default_value } = param;
+        const tsType = this.pythonToTypeScriptType(type);
+        const optional = required ? '' : '?';
+
+        if (description) {
+          content += `\n  /** ${description}`;
+          if (default_value !== undefined && !required) {
+            content += ` (default: ${JSON.stringify(default_value)})`;
+          }
+          content += ' */';
+        }
+
+        content += `\n  ${name}${optional}: ${tsType};`;
+      });
+    } else {
+      content += `\n  args?: any;`;
+    }
+
+    // Add common methods that all nodes have
+    content += `
+
+  // Available methods
+  /** Clean up resources used by the node. */
+  cleanup(): null;
+  /** Extract session ID from input data. */
+  extract_session_id(data: any): string | null;
+  /** Get the node configuration. */
+  get_config(): Record<string, any>;
+  /** Get the current session ID. */
+  get_session_id(): string | null;
+  /** Get the session state for the given session ID. */
+  get_session_state(session_id?: string | null): any | null;`;
+
+    // Add node-specific methods based on available types
+    const inputType = types.find(t => t.name.includes('Input'));
+    const outputType = types.find(t => t.name.includes('Output'));
+    const errorType = types.find(t => t.name.includes('Error'));
+
+    if (inputType && outputType) {
+      const inputTypeName = inputType.name.startsWith(node_type) ? inputType.name : `${node_type}${inputType.name}`;
+      const outputTypeName = outputType.name.startsWith(node_type) ? outputType.name : `${node_type}${outputType.name}`;
+      const errorTypeName = errorType ? (errorType.name.startsWith(node_type) ? errorType.name : `${node_type}${errorType.name}`) : 'any';
+
+      content += `
+  /** Initialize the node before processing. */
+  initialize(): null;
+  /** Merge processed data with metadata. */
+  merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
+  /** Process input data through this node. */
+  process(data: ${inputTypeName} | any): ${outputTypeName} | ${errorTypeName};
+  /** Set the current session ID for state management. */
+  set_session_id(session_id: string): null;
+  /** Split data into content and metadata components. */
+  split_data_metadata(data: any): any | any;`;
+    } else {
+      content += `
+  /** Initialize the node before processing. */
+  initialize(): null;
+  /** Merge processed data with metadata. */
+  merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
+  /** Process input data through this node. */
+  process(data: any): any;
+  /** Set the current session ID for state management. */
+  set_session_id(session_id: string): null;
+  /** Split data into content and metadata components. */
+  split_data_metadata(data: any): any | any;`;
+    }
+
+    content += '\n}\n';
 
     return content;
   }
@@ -316,35 +357,38 @@ export interface ${name} {
   generateConfigTypes(nodes) {
     let content = `import { NodeType } from './node-types';\n`;
 
-    // Import all config interfaces
+    // Import all node interfaces
     nodes.forEach(node => {
       const filename = this.kebabCase(node.node_type);
-      content += `import { ${node.node_type}Config } from './${filename}-config';\n`;
+      content += `import { ${node.node_type} } from './${filename}';\n`;
     });
 
     content += '\n';
 
-    // Generate union type
-    content += 'export type NodeConfig = \n';
+    // Generate union type of all node interfaces
+    content += '/**\n * Union type of all node interfaces\n */\nexport type Node = \n';
     nodes.forEach((node, index) => {
       const pipe = index === 0 ? '  ' : '  | ';
-      content += `${pipe}${node.node_type}Config\n`;
+      content += `${pipe}${node.node_type}\n`;
     });
     content += ';\n\n';
 
     // Generate mapping interface
-    content += 'export interface NodeConfigMap {\n';
+    content += '/**\n * Maps NodeType to its complete interface\n * \n * Use this for type-safe node operations:\n * const node: NodeMap[NodeType.CalculatorNode] = { name: "calc", process: (data) => result };\n */\nexport interface NodeMap {\n';
     nodes.forEach(node => {
-      content += `  [NodeType.${node.node_type}]: ${node.node_type}Config;\n`;
+      content += `  [NodeType.${node.node_type}]: ${node.node_type};\n`;
     });
-    content += '}\n';
+    content += '}\n\n';
+
+    // Backward compatibility aliases
+    content += '// Backward compatibility aliases\nexport type NodeConfig = Node;\nexport type NodeConfigMap = NodeMap;\n';
 
     return content;
   }
 
   generateClientInterface() {
     return `import { ExecutionResponse, ExecutionOptions, StreamHandle, NodeInfo } from './base';
-import { NodeConfigMap } from './config-types';
+import { NodeMap } from './config-types';
 import { NodeType } from './node-types';
 
 /**
@@ -353,10 +397,15 @@ import { NodeType } from './node-types';
 export interface RemoteExecutionClient {
   /**
    * Execute a node with type-safe configuration
+   * 
+   * @param nodeType - The type of node to instantiate and execute
+   * @param config - Configuration object with constructor args for the node
+   * @param inputData - Data to process with the node
+   * @param options - Execution options
    */
   executeNode<T extends NodeType>(
     nodeType: T,
-    config: NodeConfigMap[T],
+    config: Partial<NodeMap[T]>,
     inputData: any,
     options?: ExecutionOptions
   ): Promise<ExecutionResponse>;
@@ -368,10 +417,15 @@ export interface RemoteExecutionClient {
 
   /**
    * Stream data through a node
+   * 
+   * @param nodeType - The type of node to instantiate and use for streaming
+   * @param config - Configuration object with constructor args for the node
+   * @param onData - Callback for processed data
+   * @param onError - Callback for errors
    */
   streamNode<T extends NodeType>(
     nodeType: T,
-    config: NodeConfigMap[T],
+    config: Partial<NodeMap[T]>,
     onData: (data: any) => void,
     onError?: (error: Error) => void
   ): StreamHandle;
@@ -400,17 +454,12 @@ export * from './base';
 export * from './node-types';
 export * from './config-types';
 
-// Individual node configurations
+// Individual node interfaces
 `;
 
     nodes.forEach(node => {
       const filename = this.kebabCase(node.node_type);
-      content += `export * from './${filename}-config';\n`;
-
-      // Export TypedDict interfaces if they exist
-      if (node.types && node.types.length > 0) {
-        content += `export * from './${filename}';\n`;
-      }
+      content += `export * from './${filename}';\n`;
     });
 
     content += `
@@ -441,17 +490,68 @@ export * from './client';
       'Any': 'any',
       'any': 'any',
       'Optional': 'any',
-      'Union': 'any'
+      'Union': 'any',
+      'timedelta': 'any',
+      'datetime': 'Date',
+      'date': 'Date',
+      'time': 'string',
+      'Callable': 'Function',
+      'callable': 'Function',
+      'ndarray': 'Float32Array | number[]',
+      'numpy.ndarray': 'Float32Array | number[]',
+      'torch.Tensor': 'any',
+      'Tensor': 'any',
+      'Path': 'string',
+      'pathlib.Path': 'string',
+      'bytes': 'ArrayBuffer',
+      'bytearray': 'ArrayBuffer'
     };
 
-    // Handle array types
-    if (pythonType.includes('Array<')) {
-      return pythonType;
+    // Handle Array types with specific inner types
+    if (pythonType.startsWith('Array<') && pythonType.endsWith('>')) {
+      const innerType = pythonType.slice(6, -1);
+      const mappedInnerType = this.pythonToTypeScriptType(innerType);
+      return `Array<${mappedInnerType}>`;
     }
+
+    // Handle general Array types that include Array< anywhere
+    if (pythonType.includes('Array<')) {
+      // Replace any Array<...> patterns recursively
+      return pythonType.replace(/Array<([^>]+)>/g, (match, innerType) => {
+        const mappedInnerType = this.pythonToTypeScriptType(innerType);
+        return `Array<${mappedInnerType}>`;
+      });
+    }
+
+    // Handle tuple types (e.g., "[int, int]" -> "[number, number]")
+    if (pythonType.startsWith('[') && pythonType.endsWith(']')) {
+      const innerTypes = pythonType.slice(1, -1).split(',').map(t => t.trim());
+      const mappedTypes = innerTypes.map(t => this.pythonToTypeScriptType(t));
+      return `[${mappedTypes.join(', ')}]`;
+    }
+
+    // Handle quoted string literals (e.g., '"add"' -> '"add"')
+    if (pythonType.startsWith('"') && pythonType.endsWith('"')) {
+      return pythonType; // Keep as literal type
+    }
+
+    // Handle Record<str, any> pattern
+    if (pythonType.startsWith('Record<str,') || pythonType.startsWith('Record<str, ')) {
+      return pythonType.replace('Record<str,', 'Record<string,').replace('Record<str, ', 'Record<string, ');
+    }
+
+    // Check if the type exists in our mapping first (before handling complex types)
+    if (typeMap[pythonType]) {
+      return typeMap[pythonType];
+    }
+
+
 
     // Handle union types (e.g., "string | null")
     if (pythonType.includes(' | ')) {
-      return pythonType;
+      const types = pythonType.split(' | ').map(t => t.trim());
+      const mappedTypes = types.map(t => this.pythonToTypeScriptType(t));
+      return mappedTypes.join(' | ');
     }
 
     // Handle TypedDict references
@@ -463,7 +563,10 @@ export * from './client';
       }
     }
 
-    return typeMap[pythonType] || pythonType || 'any';
+    // Fallback system: If we don't recognize the type, return 'any'
+    // Log a warning so we can track unmapped types  
+    console.warn(`Unknown Python type "${pythonType}" mapped to 'any'`);
+    return 'any';
   }
 
   kebabCase(str) {

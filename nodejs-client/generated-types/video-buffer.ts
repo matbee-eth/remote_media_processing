@@ -15,7 +15,7 @@ export interface VideoBufferError {
 /**
  * Error output structure for VideoResizer.
  */
-export interface VideoResizerError {
+export interface VideoBufferVideoResizerError {
   error: string;
   input: any;
   processed_by: string;
@@ -24,7 +24,7 @@ export interface VideoResizerError {
 /**
  * Error output structure for VideoTransform.
  */
-export interface VideoTransformError {
+export interface VideoBufferVideoTransformError {
   error: string;
   input: any;
   processed_by: string;
@@ -46,7 +46,7 @@ export interface VideoBuffer {
   name?: string;
   /** Time-to-live for session states (default: 24 hours) */
   state_ttl?: any;
-  args?: any;
+  args: any;
 
   // Available methods
   /** Clean up resources used by the node. */
@@ -63,8 +63,8 @@ export interface VideoBuffer {
   initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Buffer video data. */
-  process(data: any): any | VideoBufferError;
+  /** Process input data through this node. */
+  process(data: any): any;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

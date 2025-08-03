@@ -6,7 +6,7 @@
 /**
  * Error output structure for BufferNode.
  */
-export interface BufferError {
+export interface BufferNodeBufferError {
   error: string;
   input: any;
   processed_by: string;
@@ -15,7 +15,7 @@ export interface BufferError {
 /**
  * Output data structure for BufferNode.
  */
-export interface BufferOutput {
+export interface BufferNodeBufferOutput {
   buffer: Array<any>;
   count: number;
   processed_by: string;
@@ -24,7 +24,7 @@ export interface BufferOutput {
 /**
  * Error output structure for PassThroughNode.
  */
-export interface PassThroughError {
+export interface BufferNodePassThroughError {
   error: string;
   input: any;
   processed_by: string;
@@ -40,7 +40,7 @@ export interface BufferNode {
   // Configuration properties (constructor arguments)
   /** Maximum number of items to buffer (default: 10) */
   buffer_size?: number;
-  args?: any;
+  args: any;
   /** Whether to enable state management (default: True) (default: true) */
   enable_state?: boolean;
   /** Maximum number of concurrent sessions (default: None/unlimited) */
@@ -55,8 +55,6 @@ export interface BufferNode {
   cleanup(): null;
   /** Extract session ID from input data. */
   extract_session_id(data: any): string | null;
-  /** Flush the current buffer and return its contents. */
-  flush(): Array<any>;
   /** Get the node configuration. */
   get_config(): Record<string, any>;
   /** Get the current session ID. */
@@ -67,8 +65,8 @@ export interface BufferNode {
   initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Buffer data and return when buffer is full. */
-  process(data: any): Array<any> | null | BufferError;
+  /** Process input data through this node. */
+  process(data: any): any;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

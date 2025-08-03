@@ -1,4 +1,10 @@
 /**
+ * TypeScript interfaces for TransformersPipelineNode
+ * Auto-generated from Python TypedDict classes
+ */
+
+
+/**
  * TransformersPipelineNode Interface
  * 
  * 
@@ -20,10 +26,10 @@ export interface TransformersPipelineNode {
   /** Extra keyword arguments for the model. */
   model_kwargs?: Record<string, any>;
   /** The task for the pipeline (e.g., "text-classification"). */
-  task?: string;
+  task: string;
   /** The torch dtype to use (e.g., "float16", "bfloat16"). */
   torch_dtype?: string;
-  args?: any;
+  args: any;
   /** Whether to enable state management (default: True) (default: true) */
   enable_state?: boolean;
   /** Maximum number of concurrent sessions (default: None/unlimited) */
@@ -34,10 +40,8 @@ export interface TransformersPipelineNode {
   state_ttl?: any;
 
   // Available methods
-  /** Cleans up the node's reference to the pipeline (but keeps cached pipeline). */
-  cleanup(): any;
-  /** Clear the entire pipeline cache (for memory management). */
-  clear_pipeline_cache(): any;
+  /** Clean up resources used by the node. */
+  cleanup(): null;
   /** Extract session ID from input data. */
   extract_session_id(data: any): string | null;
   /** Get the node configuration. */
@@ -46,11 +50,11 @@ export interface TransformersPipelineNode {
   get_session_id(): string | null;
   /** Get the session state for the given session ID. */
   get_session_state(session_id?: string | null): any | null;
-  /** Initializes the underlying `transformers` pipeline with robust error handling. */
-  initialize(): any;
+  /** Initialize the node before processing. */
+  initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Processes a single data item using the loaded pipeline. */
+  /** Process input data through this node. */
   process(data: any): any;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;

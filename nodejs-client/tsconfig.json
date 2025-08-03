@@ -6,7 +6,6 @@
     "declaration": true,
     "declarationMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -30,7 +29,8 @@
     "allowUnusedLabels": false
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "generated-types/**/*"
   ],
   "exclude": [
     "node_modules",

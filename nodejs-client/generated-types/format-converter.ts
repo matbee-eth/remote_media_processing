@@ -6,7 +6,7 @@
 /**
  * Error output structure for DataTransform.
  */
-export interface DataTransformError {
+export interface FormatConverterDataTransformError {
   error: string;
   input: any;
   processed_by: string;
@@ -24,7 +24,7 @@ export interface FormatConverterError {
 /**
  * Error output structure for TextTransformNode.
  */
-export interface TextTransformError {
+export interface FormatConverterTextTransformError {
   error: string;
   input: any;
   processed_by: string;
@@ -39,7 +39,7 @@ export interface TextTransformError {
 export interface FormatConverter {
   // Configuration properties (constructor arguments)
   target_format?: string;
-  args?: any;
+  args: any;
   /** Whether to enable state management (default: True) (default: true) */
   enable_state?: boolean;
   /** Maximum number of concurrent sessions (default: None/unlimited) */
@@ -64,8 +64,8 @@ export interface FormatConverter {
   initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Convert data format. */
-  process(data: any): any | FormatConverterError;
+  /** Process input data through this node. */
+  process(data: any): any;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

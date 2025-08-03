@@ -19,6 +19,10 @@ import {
   ServerStatus,
   RemoteExecutionError
 } from './types';
+import {
+  NodeType,
+  NodeMap
+} from '../generated-types';
 
 // Default configuration values
 const DEFAULT_CONFIG: Partial<RemoteExecutorConfig> = {
@@ -151,16 +155,32 @@ export class RemoteProxyClient {
   }
 
   /**
-   * Create a proxy for a specific node type
+   * Create a proxy for a specific node type with full type safety
    * 
-   * @param nodeType - The type of node to create (e.g., 'TransformersPipelineNode')
-   * @param config - Node configuration parameters
+   * @param nodeType - The type of node to create from NodeType enum
+   * @param config - Node configuration parameters (type-safe based on node type)
    * @param options - Execution options
    * @returns A proxy object with a process method
    */
+  async createNodeProxy<T extends NodeType>(
+    nodeType: T,
+    config?: Partial<NodeMap[T]>,
+    options?: ExecutionOptions
+  ): Promise<RemoteNodeProxy>;
+
+  /**
+   * Create a proxy for a specific node type (legacy string-based)
+   * @deprecated Use NodeType enum instead of string for better type safety
+   */
   async createNodeProxy(
     nodeType: string,
-    config: NodeConfig = {},
+    config?: NodeConfig,
+    options?: ExecutionOptions
+  ): Promise<RemoteNodeProxy>;
+
+  async createNodeProxy<T extends NodeType>(
+    nodeType: T | string,
+    config: Partial<NodeMap[T]> | NodeConfig = {},
     options: ExecutionOptions = {}
   ): Promise<RemoteNodeProxy> {
     if (!this.connected) {

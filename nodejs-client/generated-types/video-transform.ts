@@ -6,7 +6,7 @@
 /**
  * Error output structure for VideoBuffer.
  */
-export interface VideoBufferError {
+export interface VideoTransformVideoBufferError {
   error: string;
   input: any;
   processed_by: string;
@@ -15,7 +15,7 @@ export interface VideoBufferError {
 /**
  * Error output structure for VideoResizer.
  */
-export interface VideoResizerError {
+export interface VideoTransformVideoResizerError {
   error: string;
   input: any;
   processed_by: string;
@@ -39,7 +39,7 @@ export interface VideoTransformError {
 export interface VideoTransform {
   // Configuration properties (constructor arguments)
   resolution?: [number, number];
-  args?: any;
+  args: any;
   /** Whether to enable state management (default: True) (default: true) */
   enable_state?: boolean;
   /** Maximum number of concurrent sessions (default: None/unlimited) */
@@ -64,8 +64,8 @@ export interface VideoTransform {
   initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Process video data. */
-  process(data: any): any | VideoTransformError;
+  /** Process input data through this node. */
+  process(data: any): any;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

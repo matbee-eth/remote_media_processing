@@ -16,7 +16,7 @@ export interface AudioResamplerError {
  * Input data structure for AudioResampler.
  */
 export interface AudioResamplerInput {
-  audio_data: any;
+  audio_data: Float32Array | number[];
   sample_rate: number;
 }
 
@@ -24,7 +24,7 @@ export interface AudioResamplerInput {
  * Output data structure for AudioResampler.
  */
 export interface AudioResamplerOutput {
-  audio_data: any;
+  audio_data: Float32Array | number[];
   sample_rate: number;
   processed_by: string;
 }
@@ -32,7 +32,7 @@ export interface AudioResamplerOutput {
 /**
  * Error output structure for AudioTransform.
  */
-export interface AudioTransformError {
+export interface AudioResamplerAudioTransformError {
   error: string;
   input: any;
   processed_by: string;
@@ -41,16 +41,16 @@ export interface AudioTransformError {
 /**
  * Input data structure for AudioTransform.
  */
-export interface AudioTransformInput {
-  audio_data: any;
+export interface AudioResamplerAudioTransformInput {
+  audio_data: Float32Array | number[];
   sample_rate: number;
 }
 
 /**
  * Output data structure for AudioTransform.
  */
-export interface AudioTransformOutput {
-  audio_data: any;
+export interface AudioResamplerAudioTransformOutput {
+  audio_data: Float32Array | number[];
   sample_rate: number;
   processed_by: string;
   node_config: Record<string, any>;
@@ -59,7 +59,7 @@ export interface AudioTransformOutput {
 /**
  * Error output structure for ExtractAudioDataNode.
  */
-export interface ExtractAudioDataError {
+export interface AudioResamplerExtractAudioDataError {
   error: string;
   input: any;
   processed_by: string;
@@ -68,8 +68,8 @@ export interface ExtractAudioDataError {
 /**
  * Input data structure for ExtractAudioDataNode.
  */
-export interface ExtractAudioDataInput {
-  audio_data: any;
+export interface AudioResamplerExtractAudioDataInput {
+  audio_data: Float32Array | number[];
   sample_rate: number;
 }
 
@@ -82,7 +82,7 @@ export interface ExtractAudioDataInput {
 export interface AudioResampler {
   // Configuration properties (constructor arguments)
   target_sample_rate?: number;
-  args?: any;
+  args: any;
   /** Whether to enable state management (default: True) (default: true) */
   enable_state?: boolean;
   /** Maximum number of concurrent sessions (default: None/unlimited) */
@@ -107,8 +107,8 @@ export interface AudioResampler {
   initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Resample audio data. */
-  process(data: [any, number] | any): [any, number] | AudioResamplerError;
+  /** Process input data through this node. */
+  process(data: AudioResamplerInput | any): AudioResamplerOutput | AudioResamplerError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

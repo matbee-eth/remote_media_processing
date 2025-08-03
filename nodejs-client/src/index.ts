@@ -21,5 +21,8 @@ export {
 // Export all types
 export * from './types';
 
+// Export generated types for convenience
+export { NodeType, NodeMap } from '../generated-types';
+
 // Version information
 export const VERSION = '0.1.0';

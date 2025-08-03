@@ -5,6 +5,9 @@
  */
 
 import { withRemoteProxy, RemoteNodes } from '../src';
+import {
+  NodeType
+} from '../generated-types';
 
 async function analyzeSentiments() {
   const reviews = [
@@ -31,9 +34,16 @@ async function analyzeSentiments() {
 
       console.log('Analyzing customer reviews:\n');
 
+      // Define sentiment result type for better type safety
+      interface SentimentResult {
+        label: string;
+        score: number;
+      }
+
       // Analyze each review
       for (const review of reviews) {
-        const [result] = await analyzer.process(review);
+        const results: SentimentResult[] = await analyzer.process(review);
+        const [result] = results;
 
         const emoji = result.label === 'POSITIVE' ? '😊' : '😞';
         const percentage = (result.score * 100).toFixed(1);
@@ -44,7 +54,7 @@ async function analyzeSentiments() {
 
       // Batch analysis example
       console.log('📊 Summary Statistics:');
-      const allResults = await Promise.all(
+      const allResults: SentimentResult[][] = await Promise.all(
         reviews.map(review => analyzer.process(review))
       );
 
@@ -66,7 +76,7 @@ async function advancedSentimentAnalysis() {
 
       // Create analyzer with specific model
       const analyzer = await client.createNodeProxy(
-        'TransformersPipelineNode',
+        NodeType.TransformersPipelineNode,
         {
           task: 'sentiment-analysis',
           model: 'nlptown/bert-base-multilingual-uncased-sentiment',
@@ -82,9 +92,15 @@ async function advancedSentimentAnalysis() {
         'German': "Das ist fantastisch!"
       };
 
+      // Define sentiment result type for this example too
+      interface SentimentResult {
+        label: string;
+        score: number;
+      }
+
       for (const [language, text] of Object.entries(texts)) {
         try {
-          const result = await analyzer.process(text);
+          const result: SentimentResult[] = await analyzer.process(text);
           console.log(`${language}: "${text}"`);
           console.log(`  Result:`, result);
         } catch (error: any) {

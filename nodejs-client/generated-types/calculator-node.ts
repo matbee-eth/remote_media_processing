@@ -6,27 +6,27 @@
 /**
  * Error output structure for CalculatorNode.
  */
-export interface CalculatorError {
+export interface CalculatorNodeCalculatorError {
   error: string;
   operation: "add" | "multiply" | "subtract" | "divide" | "power" | "modulo" | string | null;
-  args: any | any | any | null;
+  args: Array<number | number> | any | null;
   processed_by: string;
 }
 
 /**
  * Input data structure for CalculatorNode.
  */
-export interface CalculatorInput {
+export interface CalculatorNodeCalculatorInput {
   operation: "add" | "multiply" | "subtract" | "divide" | "power" | "modulo";
-  args: any | any;
+  args: Array<number | number>;
 }
 
 /**
  * Output data structure for CalculatorNode.
  */
-export interface CalculatorOutput {
+export interface CalculatorNodeCalculatorOutput {
   operation: "add" | "multiply" | "subtract" | "divide" | "power" | "modulo";
-  args: any | any;
+  args: Array<number | number>;
   result: number | number;
   processed_by: string;
   node_config: Record<string, any>;
@@ -56,7 +56,7 @@ export interface CalculatorNode {
   name?: string;
   /** Time-to-live for session states (default: 24 hours) */
   state_ttl?: any;
-  args?: any;
+  args: any;
 
   // Available methods
   /** Clean up resources used by the node. */
@@ -69,14 +69,12 @@ export interface CalculatorNode {
   get_session_id(): string | null;
   /** Get the session state for the given session ID. */
   get_session_state(session_id?: string | null): any | null;
-  /** Get list of supported operations. */
-  get_supported_operations(): any | "multiply" | "subtract" | "divide" | "power" | any;
   /** Initialize the node before processing. */
   initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Perform mathematical operations on input data. */
-  process(data: { operation: "add" | "multiply" | "subtract" | "divide" | "power" | "modulo"; args: Array<number> } | any): { operation: "add" | "multiply" | "subtract" | "divide" | "power" | "modulo"; args: Array<number>; result: number; processed_by: string; node_config: Record<string, any> } | { error: string; operation?: string; args?: Array<number>; processed_by: string };
+  /** Process input data through this node. */
+  process(data: CalculatorNodeCalculatorInput | any): CalculatorNodeCalculatorOutput | CalculatorNodeCalculatorError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

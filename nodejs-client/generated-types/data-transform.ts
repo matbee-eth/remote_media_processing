@@ -15,7 +15,7 @@ export interface DataTransformError {
 /**
  * Error output structure for FormatConverter.
  */
-export interface FormatConverterError {
+export interface DataTransformFormatConverterError {
   error: string;
   input: any;
   processed_by: string;
@@ -24,7 +24,7 @@ export interface FormatConverterError {
 /**
  * Error output structure for TextTransformNode.
  */
-export interface TextTransformError {
+export interface DataTransformTextTransformError {
   error: string;
   input: any;
   processed_by: string;
@@ -46,7 +46,7 @@ export interface DataTransform {
   name?: string;
   /** Time-to-live for session states (default: 24 hours) */
   state_ttl?: any;
-  args?: any;
+  args: any;
 
   // Available methods
   /** Clean up resources used by the node. */
@@ -63,8 +63,8 @@ export interface DataTransform {
   initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Transform data. */
-  process(data: any): any | DataTransformError;
+  /** Process input data through this node. */
+  process(data: any): any;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

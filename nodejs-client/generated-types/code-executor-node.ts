@@ -6,7 +6,7 @@
 /**
  * Error output structure for CodeExecutorNode.
  */
-export interface CodeExecutorError {
+export interface CodeExecutorNodeCodeExecutorError {
   error: string;
   code?: string;
   input?: any;
@@ -16,7 +16,7 @@ export interface CodeExecutorError {
 /**
  * Input data structure for CodeExecutorNode.
  */
-export interface CodeExecutorInput {
+export interface CodeExecutorNodeCodeExecutorInput {
   code: string;
   input?: any;
 }
@@ -24,7 +24,7 @@ export interface CodeExecutorInput {
 /**
  * Output data structure for CodeExecutorNode.
  */
-export interface CodeExecutorOutput {
+export interface CodeExecutorNodeCodeExecutorOutput {
   executed_code: string;
   input: any;
   result: any;
@@ -62,7 +62,7 @@ export interface CodeExecutorNode {
   enable_safe_imports?: boolean;
   /** Input data to make available during code execution. */
   input_data?: any;
-  args?: any;
+  args: any;
   /** Whether to enable state management (default: True) (default: true) */
   enable_state?: boolean;
   /** Maximum number of concurrent sessions (default: None/unlimited) */
@@ -79,8 +79,6 @@ export interface CodeExecutorNode {
   extract_session_id(data: any): string | null;
   /** Get the node configuration. */
   get_config(): Record<string, any>;
-  /** Get information about security settings. */
-  get_security_info(): Record<string, any>;
   /** Get the current session ID. */
   get_session_id(): string | null;
   /** Get the session state for the given session ID. */
@@ -89,8 +87,8 @@ export interface CodeExecutorNode {
   initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Execute Python code from input data. */
-  process(data: CodeExecutorInput | null | any): CodeExecutorOutput | CodeExecutorError;
+  /** Process input data through this node. */
+  process(data: CodeExecutorNodeCodeExecutorInput | any): CodeExecutorNodeCodeExecutorOutput | CodeExecutorNodeCodeExecutorError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

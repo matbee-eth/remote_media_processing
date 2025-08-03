@@ -6,7 +6,7 @@
 /**
  * Error output structure for TextProcessorNode.
  */
-export interface TextProcessorError {
+export interface TextProcessorNodeTextProcessorError {
   error: string;
   text: string;
   operations: Array<string>;
@@ -16,7 +16,7 @@ export interface TextProcessorError {
 /**
  * Input data structure for TextProcessorNode.
  */
-export interface TextProcessorInput {
+export interface TextProcessorNodeTextProcessorInput {
   text: string;
   operations: Array<string>;
 }
@@ -24,7 +24,7 @@ export interface TextProcessorInput {
 /**
  * Output data structure for TextProcessorNode.
  */
-export interface TextProcessorOutput {
+export interface TextProcessorNodeTextProcessorOutput {
   original_text: string;
   operations: Array<string>;
   results: Record<string, any>;
@@ -56,7 +56,7 @@ export interface TextProcessorNode {
   name?: string;
   /** Time-to-live for session states (default: 24 hours) */
   state_ttl?: any;
-  args?: any;
+  args: any;
 
   // Available methods
   /** Clean up resources used by the node. */
@@ -69,14 +69,12 @@ export interface TextProcessorNode {
   get_session_id(): string | null;
   /** Get the session state for the given session ID. */
   get_session_state(session_id?: string | null): any | null;
-  /** Get list of supported text operations. */
-  get_supported_operations(): any[];
   /** Initialize the node before processing. */
   initialize(): null;
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
-  /** Perform text processing operations on input data. */
-  process(data: TextProcessorInput | any): TextProcessorOutput | TextProcessorError;
+  /** Process input data through this node. */
+  process(data: TextProcessorNodeTextProcessorInput | any): TextProcessorNodeTextProcessorOutput | TextProcessorNodeTextProcessorError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

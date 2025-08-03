@@ -5,6 +5,11 @@
  */
 
 import { RemoteProxyClient } from '../src';
+import {
+  NodeType,
+  CalculatorNodeCalculatorInput,
+  CalculatorNodeCalculatorOutput
+} from '../generated-types';
 
 async function main() {
   // Create a client instance
@@ -21,23 +26,23 @@ async function main() {
     // List available nodes
     console.log('\n📋 Available nodes:');
     const nodes = await client.listNodes();
-    nodes.forEach(node => {
+    nodes.forEach((node) => {
       console.log(`  - ${node.node_type} (${node.category})`);
     });
 
     // Create a calculator node
     console.log('\n🧮 Creating calculator node...');
-    const calculator = await client.createNodeProxy('CalculatorNode');
+    const calculator = await client.createNodeProxy(NodeType.CalculatorNode);
 
     // Perform calculations
-    const operations = [
+    const operations: CalculatorNodeCalculatorInput[] = [
       { operation: 'add', args: [5, 3] },
       { operation: 'multiply', args: [4, 7] },
       { operation: 'divide', args: [20, 4] }
     ];
 
     for (const op of operations) {
-      const result = await calculator.process(op);
+      const result: CalculatorNodeCalculatorOutput = await calculator.process(op);
       console.log(`${op.operation}(${op.args.join(', ')}) = ${result.result}`);
     }
 
