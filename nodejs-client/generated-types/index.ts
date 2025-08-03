@@ -1,6 +1,6 @@
 /**
  * RemoteMedia Processing SDK TypeScript Definitions
- * Generated at: 2025-08-03T00:48:20.681801
+ * Generated at: 2025-08-03T01:15:50.253884
  * Service version: 0.1.0
  */
 
@@ -11,22 +11,22 @@ export * from './base';
 export * from './node-types';
 export * from './config-types';
 
-// Individual node configurations
-export * from './pass-through-node-config';
-export * from './buffer-node-config';
-export * from './audio-transform-config';
-export * from './audio-buffer-config';
-export * from './audio-resampler-config';
-export * from './video-transform-config';
-export * from './video-buffer-config';
-export * from './video-resizer-config';
-export * from './data-transform-config';
-export * from './format-converter-config';
-export * from './calculator-node-config';
-export * from './code-executor-node-config';
-export * from './text-processor-node-config';
-export * from './serialized-class-executor-node-config';
-export * from './transformers-pipeline-node-config';
+// Individual node interfaces
+export * from './pass-through-node';
+export * from './buffer-node';
+export * from './audio-transform';
+export * from './audio-buffer';
+export * from './audio-resampler';
+export * from './video-transform';
+export * from './video-buffer';
+export * from './video-resizer';
+export * from './data-transform';
+export * from './format-converter';
+export * from './calculator-node';
+export * from './code-executor-node';
+export * from './text-processor-node';
+export * from './serialized-class-executor-node';
+export * from './transformers-pipeline-node';
 
 // Client interface
 export * from './client';

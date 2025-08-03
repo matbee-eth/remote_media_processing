@@ -5,7 +5,7 @@ WARNING: This node executes arbitrary Python code and is INSECURE!
 Only use in trusted environments with proper sandboxing.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional, List
 import logging
 
 from ..core.node import Node
@@ -26,34 +26,73 @@ class CodeExecutorNode(Node):
     }
     """
     
+    def __init__(
+        self,
+        code: Optional[str] = None,
+        input_data: Any = None,
+        enable_safe_imports: bool = False,
+        enable_pickle: bool = False,
+        enable_cloudpickle: bool = False,
+        allowed_modules: Optional[List[str]] = None,
+        **kwargs
+    ):
+        """
+        Initializes the CodeExecutorNode.
+        
+        Args:
+            code (str, optional): Python code to execute. Can be provided at initialization or runtime.
+            input_data (Any, optional): Input data to make available during code execution.
+            enable_safe_imports (bool): Whether to enable safe module imports like math, json.
+            enable_pickle (bool): Whether to enable pickle module (DANGEROUS).
+            enable_cloudpickle (bool): Whether to enable cloudpickle module for advanced serialization.
+            allowed_modules (List[str], optional): List of additional safe modules to allow.
+            **kwargs: Additional node parameters.
+        """
+        super().__init__(**kwargs)
+        self.default_code = code
+        self.default_input_data = input_data
+        self.enable_safe_imports = enable_safe_imports
+        self.enable_pickle = enable_pickle
+        self.enable_cloudpickle = enable_cloudpickle
+        self.allowed_modules = allowed_modules or []
+    
     def process(self, data: Any) -> Any:
         """
         Execute Python code from input data.
         
         Args:
-            data: Dictionary with code and optional input
+            data: Dictionary with code and optional input, or None to use defaults
             
         Returns:
             Dictionary with execution result or error
         """
         logger.warning(f"CodeExecutorNode '{self.name}': Executing user code - THIS IS INSECURE!")
         
-        if not isinstance(data, dict):
+        # Handle case where data is None and we use defaults
+        if data is None:
+            if self.default_code is None:
+                return {
+                    "error": "No code provided and no default code configured",
+                    "processed_by": f"CodeExecutorNode[{self.name}]"
+                }
+            code = self.default_code
+            input_data = self.default_input_data
+        elif isinstance(data, dict):
+            code = data.get('code', self.default_code)
+            input_data = data.get('input', self.default_input_data)
+            
+            if code is None:
+                return {
+                    "error": "Input must contain 'code' key or have default code configured",
+                    "input": data,
+                    "processed_by": f"CodeExecutorNode[{self.name}]"
+                }
+        else:
             return {
-                "error": "Input must be a dictionary",
+                "error": "Input must be a dictionary or None",
                 "input": data,
                 "processed_by": f"CodeExecutorNode[{self.name}]"
             }
-        
-        if 'code' not in data:
-            return {
-                "error": "Input must contain 'code' key",
-                "input": data,
-                "processed_by": f"CodeExecutorNode[{self.name}]"
-            }
-        
-        code = data['code']
-        input_data = data.get('input', None)
         
         try:
             result = self._execute_code(code, input_data)
@@ -131,7 +170,7 @@ class CodeExecutorNode(Node):
         }
         
         # Add safe modules if enabled in config
-        if self.config.get('enable_safe_imports', False):
+        if self.enable_safe_imports:
             safe_globals.update(self._get_safe_modules())
         
         # Execute the code
@@ -167,7 +206,7 @@ class CodeExecutorNode(Node):
             pass
         
         # Pickle module (for serialization) - DANGEROUS but needed for some tests
-        if self.config.get('enable_pickle', False):
+        if self.enable_pickle:
             try:
                 import pickle
                 safe_modules['pickle'] = pickle
@@ -175,11 +214,20 @@ class CodeExecutorNode(Node):
                 pass
         
         # Cloudpickle module (for advanced serialization) - needed for Phase 3
-        if self.config.get('enable_cloudpickle', False):
+        if self.enable_cloudpickle:
             try:
                 import cloudpickle
                 safe_modules['cloudpickle'] = cloudpickle
             except ImportError:
+                pass
+        
+        # Add any additional allowed modules
+        for module_name in self.allowed_modules:
+            try:
+                module = __import__(module_name)
+                safe_modules[module_name] = module
+            except ImportError:
+                logger.warning(f"Could not import allowed module: {module_name}")
                 pass
         
         return safe_modules
@@ -188,9 +236,10 @@ class CodeExecutorNode(Node):
         """Get information about security settings."""
         return {
             "security_level": "MINIMAL - INSECURE",
-            "safe_imports_enabled": self.config.get('enable_safe_imports', False),
-            "pickle_enabled": self.config.get('enable_pickle', False),
-            "cloudpickle_enabled": self.config.get('enable_cloudpickle', False),
+            "safe_imports_enabled": self.enable_safe_imports,
+            "pickle_enabled": self.enable_pickle,
+            "cloudpickle_enabled": self.enable_cloudpickle,
+            "allowed_modules": self.allowed_modules,
             "warning": "This node executes arbitrary code and is NOT SECURE!"
         }
 

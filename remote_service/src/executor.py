@@ -378,12 +378,16 @@ class TaskExecutor:
             # Extract parameters using introspection
             parameters = self._extract_node_parameters(node_class)
             
+            # Extract method signatures
+            methods = self._extract_node_methods(node_class)
+            
             # Create node info
             node_info = {
                 'node_type': node_type,
                 'category': node_category,
                 'description': getattr(node_class, '__doc__', f"{node_type} processing node") or f"{node_type} processing node",
-                'parameters': parameters
+                'parameters': parameters,
+                'methods': methods
             }
             nodes.append(node_info)
         
@@ -508,6 +512,107 @@ class TaskExecutor:
             
         return parameters
     
+    def _extract_node_methods(self, node_class: type) -> List[Dict[str, Any]]:
+        """
+        Extract method signatures from a node class.
+        
+        Args:
+            node_class: Node class to inspect
+            
+        Returns:
+            List of method information
+        """
+        import inspect
+        from typing import get_type_hints
+        
+        methods = []
+        
+        try:
+            # Get all public methods that are not inherited from basic object class
+            for method_name in dir(node_class):
+                # Skip private methods, magic methods (except process), and basic object methods
+                if (method_name.startswith('_') and method_name not in ['__init__']) or \
+                   method_name in ['__class__', '__doc__', '__module__', '__dict__', '__weakref__']:
+                    continue
+                
+                method = getattr(node_class, method_name)
+                
+                # Only process callable methods that are defined in this class or its parents (not object)
+                if not callable(method):
+                    continue
+                
+                # Get the method from the class that actually defines it
+                defining_class = None
+                for cls in node_class.__mro__:
+                    if cls == object:
+                        continue
+                    if hasattr(cls, method_name) and method_name in cls.__dict__:
+                        defining_class = cls
+                        break
+                
+                if not defining_class:
+                    continue
+                
+                try:
+                    # Get method signature
+                    sig = inspect.signature(method)
+                    
+                    # Get type hints
+                    try:
+                        type_hints = get_type_hints(method)
+                    except Exception as e:
+                        self.logger.debug(f"Could not get type hints for {method_name}: {e}")
+                        type_hints = {}
+                    
+                    # Parse method docstring
+                    method_doc = inspect.getdoc(method) or ""
+                    
+                    # Extract parameters (excluding 'self')
+                    method_params = []
+                    for param_name, param in sig.parameters.items():
+                        if param_name == 'self':
+                            continue
+                        
+                        param_type = type_hints.get(param_name, param.annotation)
+                        type_str = self._get_type_string(param_type)
+                        
+                        required = param.default == inspect.Parameter.empty
+                        default_value = None if required else param.default
+                        
+                        param_info = {
+                            'name': param_name,
+                            'type': type_str,
+                            'required': required
+                        }
+                        
+                        if default_value is not None:
+                            param_info['default_value'] = default_value
+                        
+                        method_params.append(param_info)
+                    
+                    # Get return type
+                    return_type = type_hints.get('return', sig.return_annotation)
+                    return_type_str = self._get_type_string(return_type)
+                    
+                    method_info = {
+                        'name': method_name,
+                        'description': method_doc,
+                        'parameters': method_params,
+                        'return_type': return_type_str,
+                        'defining_class': defining_class.__name__
+                    }
+                    
+                    methods.append(method_info)
+                    
+                except Exception as e:
+                    self.logger.debug(f"Failed to process method {method_name}: {e}")
+                    continue
+        
+        except Exception as e:
+            self.logger.warning(f"Failed to extract methods for {node_class.__name__}: {e}")
+        
+        return methods
+    
     def _parse_docstring_params(self, docstring: str) -> Dict[str, str]:
         """
         Parse parameter descriptions from docstring.
@@ -575,25 +680,78 @@ class TaskExecutor:
         Returns:
             String representation of the type
         """
+        import typing
+        from typing import get_origin, get_args
+        
         if type_annotation == inspect.Parameter.empty:
             return 'any'
             
         # Handle basic types
         if type_annotation in (int, float, str, bool):
             return type_annotation.__name__
+        
+        # Handle None type
+        if type_annotation is type(None):
+            return 'null'
             
+        # Handle Any type
+        if type_annotation is typing.Any:
+            return 'any'
+            
+        # Handle Union types (including Optional)
+        origin = get_origin(type_annotation)
+        if origin is typing.Union:
+            args = get_args(type_annotation)
+            # Check if it's Optional (Union with None)
+            if len(args) == 2 and type(None) in args:
+                non_none_type = args[0] if args[1] is type(None) else args[1]
+                return f"{self._get_type_string(non_none_type)} | null"
+            else:
+                # Regular Union
+                union_types = [self._get_type_string(arg) for arg in args]
+                return " | ".join(union_types)
+        
+        # Handle Literal types
+        if hasattr(typing, 'Literal') and origin is typing.Literal:
+            args = get_args(type_annotation)
+            literal_values = [f'"{arg}"' if isinstance(arg, str) else str(arg) for arg in args]
+            return " | ".join(literal_values)
+        
+        # Handle List types
+        if origin is list:
+            args = get_args(type_annotation)
+            if args:
+                item_type = self._get_type_string(args[0])
+                return f"Array<{item_type}>"
+            return "Array<any>"
+        
+        # Handle Dict types
+        if origin is dict:
+            args = get_args(type_annotation)
+            if len(args) >= 2:
+                key_type = self._get_type_string(args[0])
+                value_type = self._get_type_string(args[1])
+                return f"Record<{key_type}, {value_type}>"
+            return "Record<string, any>"
+        
+        # Handle Tuple types
+        if origin is tuple:
+            args = get_args(type_annotation)
+            if args:
+                tuple_types = [self._get_type_string(arg) for arg in args]
+                return f"[{', '.join(tuple_types)}]"
+            return "any[]"
+        
+        # Handle TypedDict and other classes
         if hasattr(type_annotation, '__name__'):
+            # Check if it's a TypedDict
+            if hasattr(type_annotation, '__annotations__') and hasattr(type_annotation, '__total__'):
+                # It's a TypedDict - we'll represent it as a structured object
+                return f"TypedDict<{type_annotation.__name__}>"
             return type_annotation.__name__
         elif hasattr(type_annotation, '__origin__'):
-            # Handle generic types like List[str], Dict[str, Any]
+            # Handle other generic types
             origin = type_annotation.__origin__
-            if origin is list:
-                return 'List'
-            elif origin is dict:
-                return 'Dict'
-            elif origin is tuple:
-                return 'Tuple'
-            else:
-                return str(origin.__name__ if hasattr(origin, '__name__') else origin)
+            return str(origin.__name__ if hasattr(origin, '__name__') else origin)
         else:
             return str(type_annotation) 

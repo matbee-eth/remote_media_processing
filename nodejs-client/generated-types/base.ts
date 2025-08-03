@@ -1,6 +1,6 @@
 /**
  * Base TypeScript interfaces for RemoteMedia Processing SDK
- * Generated at: 2025-08-03T00:48:20.681801
+ * Generated at: 2025-08-03T01:15:50.253884
  * Service version: 0.1.0
  */
 
