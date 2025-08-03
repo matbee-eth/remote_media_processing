@@ -19,6 +19,10 @@ import inspect
 from concurrent.futures import ThreadPoolExecutor
 import uuid
 import ast
+from enum import Enum
+import traceback
+import psutil
+import gc
 
 import grpc
 from grpc_health.v1 import health_pb2_grpc
@@ -33,6 +37,8 @@ import io
 import tempfile
 import base64
 import subprocess
+import json
+from typing import Type
 
 # Import service components
 from config import ServiceConfig
@@ -42,6 +48,232 @@ from remotemedia.core.node import Node
 from remotemedia.serialization import PickleSerializer, JSONSerializer
 import cloudpickle
 import numpy as np
+
+
+class ErrorCategory(Enum):
+    """Categories of errors for better handling and reporting."""
+    UNKNOWN = "unknown"
+    MODEL_LOADING = "model_loading"
+    MEMORY_ERROR = "memory_error"
+    TIMEOUT = "timeout"
+    RESOURCE_LIMIT = "resource_limit"
+    SERIALIZATION = "serialization"
+    NETWORK = "network"
+    SECURITY = "security"
+    DEPENDENCY = "dependency"
+    VALIDATION = "validation"
+    CUDA_ERROR = "cuda_error"
+
+
+class ErrorHandler:
+    """Centralized error handling with categorization and recovery strategies."""
+    
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        
+        # Error patterns for categorization
+        self.error_patterns = {
+            ErrorCategory.MODEL_LOADING: [
+                "Cannot copy out of meta tensor",
+                "Failed to load transformers pipeline",
+                "torch.nn.Module.to_empty",
+                "model loading failed",
+                "checkpoint loading",
+                "HuggingFace",
+                "transformers.models"
+            ],
+            ErrorCategory.MEMORY_ERROR: [
+                "out of memory",
+                "CUDA out of memory",
+                "MemoryError",
+                "allocation failed",
+                "insufficient memory"
+            ],
+            ErrorCategory.CUDA_ERROR: [
+                "CUDA error",
+                "device-side assert",
+                "CUDA runtime",
+                "GPU memory",
+                "device unavailable"
+            ],
+            ErrorCategory.SERIALIZATION: [
+                "pickle",
+                "serialization",
+                "deserialization",
+                "json.JSONDecodeError",
+                "encoding error"
+            ],
+            ErrorCategory.DEPENDENCY: [
+                "ImportError",
+                "ModuleNotFoundError", 
+                "No module named",
+                "package not found",
+                "dependency"
+            ],
+            ErrorCategory.NETWORK: [
+                "connection",
+                "network",
+                "timeout",
+                "socket",
+                "DNS"
+            ],
+            ErrorCategory.VALIDATION: [
+                "ValueError",
+                "invalid",
+                "validation",
+                "parameter",
+                "configuration"
+            ]
+        }
+    
+    def categorize_error(self, error: Exception) -> ErrorCategory:
+        """Categorize an error based on its type and message."""
+        error_str = str(error).lower()
+        error_type = type(error).__name__.lower()
+        
+        # Check patterns
+        for category, patterns in self.error_patterns.items():
+            for pattern in patterns:
+                if pattern.lower() in error_str or pattern.lower() in error_type:
+                    return category
+        
+        return ErrorCategory.UNKNOWN
+    
+    def get_status_for_category(self, category: ErrorCategory) -> int:
+        """Map error categories to appropriate gRPC status codes."""
+        status_mapping = {
+            ErrorCategory.MODEL_LOADING: types_pb2.EXECUTION_STATUS_ERROR,
+            ErrorCategory.MEMORY_ERROR: types_pb2.EXECUTION_STATUS_RESOURCE_LIMIT,
+            ErrorCategory.TIMEOUT: types_pb2.EXECUTION_STATUS_TIMEOUT,
+            ErrorCategory.RESOURCE_LIMIT: types_pb2.EXECUTION_STATUS_RESOURCE_LIMIT,
+            ErrorCategory.SECURITY: types_pb2.EXECUTION_STATUS_SECURITY_VIOLATION,
+            ErrorCategory.CUDA_ERROR: types_pb2.EXECUTION_STATUS_RESOURCE_LIMIT,
+            ErrorCategory.SERIALIZATION: types_pb2.EXECUTION_STATUS_ERROR,
+            ErrorCategory.NETWORK: types_pb2.EXECUTION_STATUS_ERROR,
+            ErrorCategory.DEPENDENCY: types_pb2.EXECUTION_STATUS_ERROR,
+            ErrorCategory.VALIDATION: types_pb2.EXECUTION_STATUS_ERROR,
+            ErrorCategory.UNKNOWN: types_pb2.EXECUTION_STATUS_ERROR
+        }
+        return status_mapping.get(category, types_pb2.EXECUTION_STATUS_ERROR)
+    
+    def is_retryable(self, category: ErrorCategory) -> bool:
+        """Determine if an error category is potentially retryable."""
+        retryable_categories = {
+            ErrorCategory.NETWORK,
+            ErrorCategory.TIMEOUT,
+            ErrorCategory.MEMORY_ERROR,  # Sometimes transient
+            ErrorCategory.CUDA_ERROR     # Sometimes transient
+        }
+        return category in retryable_categories
+    
+    def get_error_context(self, error: Exception, operation: str = "", **kwargs) -> Dict[str, str]:
+        """Generate detailed error context for debugging."""
+        context = {
+            "operation": operation,
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        
+        # Add memory info if available
+        try:
+            process = psutil.Process()
+            context["memory_mb"] = f"{process.memory_info().rss / 1024 / 1024:.1f}"
+            context["cpu_percent"] = f"{process.cpu_percent():.1f}"
+        except:
+            pass
+        
+        # Add CUDA info if available
+        try:
+            import torch
+            if torch.cuda.is_available():
+                context["cuda_memory_allocated"] = f"{torch.cuda.memory_allocated() / 1024**2:.1f}MB"
+                context["cuda_memory_cached"] = f"{torch.cuda.memory_reserved() / 1024**2:.1f}MB"
+        except:
+            pass
+        
+        # Add custom context
+        context.update(kwargs)
+        
+        return context
+    
+    def format_error_message(self, error: Exception, category: ErrorCategory, context: Dict[str, str]) -> str:
+        """Format a comprehensive error message."""
+        base_msg = f"[{category.value.upper()}] {type(error).__name__}: {str(error)}"
+        
+        if category == ErrorCategory.MODEL_LOADING:
+            base_msg += "\n\nThis appears to be a PyTorch model loading issue. Common solutions:"
+            base_msg += "\n- Try using torch.nn.Module.to_empty() instead of torch.nn.Module.to()"
+            base_msg += "\n- Check if the model was saved with the correct PyTorch version"
+            base_msg += "\n- Verify CUDA compatibility if using GPU"
+        elif category == ErrorCategory.MEMORY_ERROR:
+            base_msg += "\n\nMemory limit exceeded. Consider:"
+            base_msg += "\n- Reducing batch size or model size"
+            base_msg += "\n- Clearing CUDA cache if using GPU"
+            base_msg += "\n- Checking for memory leaks"
+        elif category == ErrorCategory.CUDA_ERROR:
+            base_msg += "\n\nCUDA error detected. Try:"
+            base_msg += "\n- Clearing CUDA cache: torch.cuda.empty_cache()"
+            base_msg += "\n- Checking GPU memory availability"
+            base_msg += "\n- Verifying CUDA installation"
+        
+        # Add context if helpful
+        if context:
+            base_msg += f"\n\nContext: {context}"
+        
+        return base_msg
+    
+    async def handle_error(self, error: Exception, operation: str, **context) -> Dict[str, Any]:
+        """
+        Comprehensive error handling that categorizes, logs, and potentially recovers.
+        
+        Returns error details for response construction.
+        """
+        category = self.categorize_error(error)
+        error_context = self.get_error_context(error, operation, **context)
+        
+        # Log with appropriate level based on category
+        if category in [ErrorCategory.MEMORY_ERROR, ErrorCategory.CUDA_ERROR]:
+            self.logger.warning(f"Resource issue in {operation}: {error}", exc_info=True)
+        elif category == ErrorCategory.MODEL_LOADING:
+            self.logger.error(f"Model loading failed in {operation}: {error}", exc_info=True)
+        else:
+            self.logger.error(f"Error in {operation}: {error}", exc_info=True)
+        
+        # Attempt recovery for certain error types
+        if category == ErrorCategory.MEMORY_ERROR or category == ErrorCategory.CUDA_ERROR:
+            await self._attempt_memory_recovery()
+        
+        # Format comprehensive error message
+        formatted_message = self.format_error_message(error, category, error_context)
+        
+        return {
+            "status": self.get_status_for_category(category),
+            "error_message": formatted_message,
+            "error_category": category.value,
+            "is_retryable": self.is_retryable(category),
+            "context": error_context,
+            "traceback": traceback.format_exc()
+        }
+    
+    async def _attempt_memory_recovery(self):
+        """Attempt to recover from memory issues."""
+        try:
+            # Force garbage collection
+            gc.collect()
+            
+            # Clear CUDA cache if available
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    self.logger.info("Cleared CUDA cache for memory recovery")
+            except ImportError:
+                pass
+            
+            self.logger.info("Attempted memory recovery")
+        except Exception as e:
+            self.logger.warning(f"Memory recovery failed: {e}")
 
 
 class GeneratorSession:
@@ -81,6 +313,7 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         self._cleanup_lock = asyncio.Lock()
         
         self.logger = logging.getLogger(__name__)
+        self.error_handler = ErrorHandler(self.logger)  # Initialize error handler
         self.logger.info("RemoteExecutionServicer initialized")
         
         # Start periodic cleanup task
@@ -342,6 +575,7 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         """
         self.request_count += 1
         start_time = time.time()
+        operation = f"ExecuteNode[{request.node_type}]"
         
         self.logger.info(f"Executing SDK node: {request.node_type}")
         
@@ -369,12 +603,20 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
             
         except Exception as e:
             self.error_count += 1
-            self.logger.error(f"Error executing node {request.node_type}: {e}")
+            
+            # Use enhanced error handling
+            error_details = await self.error_handler.handle_error(
+                e, operation,
+                node_type=request.node_type,
+                config=dict(request.config),
+                serialization_format=request.serialization_format,
+                input_size=len(request.input_data)
+            )
             
             return execution_pb2.ExecuteNodeResponse(
-                status=types_pb2.EXECUTION_STATUS_ERROR,
-                error_message=str(e),
-                error_traceback=self._get_traceback(),
+                status=error_details["status"],
+                error_message=error_details["error_message"],
+                error_traceback=error_details["traceback"],
                 metrics=self._build_error_metrics(start_time)
             )
     
@@ -395,6 +637,7 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         """
         self.request_count += 1
         start_time = time.time()
+        operation = f"ExecuteCustomTask[{request.entry_point}]"
         
         self.logger.info("Executing custom task")
         
@@ -430,12 +673,20 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
             )
         except Exception as e:
             self.error_count += 1
-            self.logger.error(f"Error executing custom task: {e}")
+            
+            # Use enhanced error handling
+            error_details = await self.error_handler.handle_error(
+                e, operation,
+                entry_point=request.entry_point,
+                dependencies=list(request.dependencies),
+                serialization_format=request.serialization_format,
+                input_size=len(request.input_data)
+            )
             
             return execution_pb2.ExecuteCustomTaskResponse(
-                status=types_pb2.EXECUTION_STATUS_ERROR,
-                error_message=str(e),
-                error_traceback=self._get_traceback(),
+                status=error_details["status"],
+                error_message=error_details["error_message"],
+                error_traceback=error_details["traceback"],
                 metrics=self._build_error_metrics(start_time)
             )
     
@@ -598,11 +849,21 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                 session_id=session_id
             )
         except Exception as e:
-            self.logger.error(f"Error during ExecuteObjectMethod: {e}", exc_info=True)
+            # Use enhanced error handling
+            operation = f"ExecuteObjectMethod[{request.method_name}]"
+            error_details = await self.error_handler.handle_error(
+                e, operation,
+                session_id=session_id,
+                method_name=request.method_name,
+                serialization_format=request.serialization_format,
+                has_session=bool(session_id),
+                connection_id=connection_id
+            )
+            
             return execution_pb2.ExecuteObjectMethodResponse(
-                status=types_pb2.EXECUTION_STATUS_ERROR,
-                error_message=str(e),
-                error_traceback=self._get_traceback()
+                status=error_details["status"],
+                error_message=error_details["error_message"],
+                error_traceback=error_details["traceback"]
             )
         # Note: We are not cleaning up the session here. A separate mechanism
         # for session timeout/cleanup would be needed in a production system.
@@ -755,8 +1016,19 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
             logger.error("StreamObject error: Client disconnected before sending initialization message.")
             yield execution_pb2.StreamObjectResponse(error="Client disconnected before initialization.")
         except Exception as e:
-            logger.error(f"Error during StreamObject execution with object type {type(obj).__name__ if obj else 'Unknown'}: {e}", exc_info=True)
-            yield execution_pb2.StreamObjectResponse(error=f"Error during execution: {e}")
+            # Use enhanced error handling for better diagnostics
+            operation = f"StreamObject[{type(obj).__name__ if obj else 'Unknown'}]"
+            error_details = await self.error_handler.handle_error(
+                e, operation,
+                object_type=type(obj).__name__ if obj else 'Unknown',
+                session_id=session_id,
+                connection_id=connection_id,
+                has_init_request=init_request is not None
+            )
+            
+            yield execution_pb2.StreamObjectResponse(
+                error=f"[{error_details['error_category'].upper()}] {error_details['error_message']}"
+            )
         finally:
             # Clean up all resources for this connection
             await self._cleanup_connection_resources(connection_id)
@@ -777,6 +1049,334 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                     logger.error(f"Failed to cleanup sandbox {sandbox_path}: {e}")
 
             logger.info(f"StreamObject connection closed for {connection_id}")
+    
+    def _generate_typescript_interfaces(self) -> str:
+        """
+        Generate TypeScript interface definitions for the remote media processing system.
+        
+        Returns:
+            String containing TypeScript interface definitions
+        """
+        typescript_defs = []
+        
+        # Header
+        typescript_defs.append("/**")
+        typescript_defs.append(" * TypeScript interface definitions for RemoteMedia Processing SDK")
+        typescript_defs.append(" * Generated from Python server definitions")
+        typescript_defs.append(" */")
+        typescript_defs.append("")
+        
+        # Core Node interface
+        typescript_defs.append("// Core Node interface")
+        typescript_defs.append("export interface RemoteMediaNode {")
+        typescript_defs.append("  name?: string;")
+        typescript_defs.append("  config?: Record<string, any>;")
+        typescript_defs.append("  process(data: any): any | Promise<any>;")
+        typescript_defs.append("  initialize?(): Promise<void>;")
+        typescript_defs.append("  cleanup?(): Promise<void>;")
+        typescript_defs.append("  flush?(): any | Promise<any>;")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Session State interfaces
+        typescript_defs.append("// Session State interfaces")
+        typescript_defs.append("export interface SessionState {")
+        typescript_defs.append("  sessionId: string;")
+        typescript_defs.append("  data: Record<string, any>;")
+        typescript_defs.append("  createdAt: Date;")
+        typescript_defs.append("  lastAccessed: Date;")
+        typescript_defs.append("  metadata: Record<string, any>;")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Remote Executor Config
+        typescript_defs.append("// Remote Executor Configuration")
+        typescript_defs.append("export interface RemoteExecutorConfig {")
+        typescript_defs.append("  host: string;")
+        typescript_defs.append("  port: number;")
+        typescript_defs.append("  protocol?: 'grpc' | 'http';")
+        typescript_defs.append("  authToken?: string;")
+        typescript_defs.append("  timeout?: number;")
+        typescript_defs.append("  maxRetries?: number;")
+        typescript_defs.append("  sslEnabled?: boolean;")
+        typescript_defs.append("  pipPackages?: string[];")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Execution Options
+        typescript_defs.append("// Execution Options")
+        typescript_defs.append("export interface ExecutionOptions {")
+        typescript_defs.append("  timeout?: number;")
+        typescript_defs.append("  maxMemoryMb?: number;")
+        typescript_defs.append("  cpuLimit?: number;")
+        typescript_defs.append("  enableGpu?: boolean;")
+        typescript_defs.append("  priority?: 'low' | 'normal' | 'high';")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Service Client interfaces
+        typescript_defs.append("// Remote Execution Client interfaces")
+        typescript_defs.append("export interface RemoteExecutionClient {")
+        typescript_defs.append("  executeNode(")
+        typescript_defs.append("    nodeType: string,")
+        typescript_defs.append("    config: Record<string, any>,")
+        typescript_defs.append("    inputData: any,")
+        typescript_defs.append("    options?: ExecutionOptions")
+        typescript_defs.append("  ): Promise<any>;")
+        typescript_defs.append("  ")
+        typescript_defs.append("  executeCustomTask(")
+        typescript_defs.append("    codePackage: Uint8Array,")
+        typescript_defs.append("    entryPoint: string,")
+        typescript_defs.append("    inputData: any,")
+        typescript_defs.append("    dependencies?: string[],")
+        typescript_defs.append("    options?: ExecutionOptions")
+        typescript_defs.append("  ): Promise<any>;")
+        typescript_defs.append("  ")
+        typescript_defs.append("  streamNode(")
+        typescript_defs.append("    nodeType: string,")
+        typescript_defs.append("    config: Record<string, any>,")
+        typescript_defs.append("    onData: (data: any) => void,")
+        typescript_defs.append("    onError?: (error: Error) => void")
+        typescript_defs.append("  ): StreamHandle;")
+        typescript_defs.append("  ")
+        typescript_defs.append("  close(): Promise<void>;")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Stream Handle interface
+        typescript_defs.append("// Stream Handle for bidirectional streaming")
+        typescript_defs.append("export interface StreamHandle {")
+        typescript_defs.append("  send(data: any): Promise<void>;")
+        typescript_defs.append("  close(): Promise<void>;")
+        typescript_defs.append("  readonly sessionId: string;")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Remote Proxy Client interfaces
+        typescript_defs.append("// Remote Proxy Client for transparent object execution")
+        typescript_defs.append("export interface RemoteProxyClient {")
+        typescript_defs.append("  createProxy<T extends object>(")
+        typescript_defs.append("    obj: T,")
+        typescript_defs.append("    dependencies?: string[]")
+        typescript_defs.append("  ): Promise<RemoteProxy<T>>;")
+        typescript_defs.append("  ")
+        typescript_defs.append("  close(): Promise<void>;")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Remote Proxy type
+        typescript_defs.append("// Remote Proxy type wrapper")
+        typescript_defs.append("export type RemoteProxy<T> = {")
+        typescript_defs.append("  [K in keyof T]: T[K] extends (...args: any[]) => any")
+        typescript_defs.append("    ? (...args: Parameters<T[K]>) => Promise<Awaited<ReturnType<T[K]>>>")
+        typescript_defs.append("    : Promise<T[K]>;")
+        typescript_defs.append("};")
+        typescript_defs.append("")
+        
+        # Generator interfaces
+        typescript_defs.append("// Generator support interfaces")
+        typescript_defs.append("export interface RemoteGenerator<T> {")
+        typescript_defs.append("  next(): Promise<{ value: T; done: boolean }>;")
+        typescript_defs.append("  close(): Promise<void>;")
+        typescript_defs.append("  [Symbol.asyncIterator](): AsyncIterator<T>;")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Common node types
+        typescript_defs.append("// Common built-in node types")
+        typescript_defs.append("export enum NodeType {")
+        typescript_defs.append("  // Audio nodes")
+        typescript_defs.append("  AudioTransform = 'AudioTransform',")
+        typescript_defs.append("  AudioBuffer = 'AudioBuffer',")
+        typescript_defs.append("  VoiceActivityDetector = 'VoiceActivityDetector',")
+        typescript_defs.append("  VADTriggeredBuffer = 'VADTriggeredBuffer',")
+        typescript_defs.append("  ")
+        typescript_defs.append("  // ML nodes")
+        typescript_defs.append("  UltravoxNode = 'UltravoxNode',")
+        typescript_defs.append("  KokoroTTSNode = 'KokoroTTSNode',")
+        typescript_defs.append("  TransformersPipelineNode = 'TransformersPipelineNode',")
+        typescript_defs.append("  ")
+        typescript_defs.append("  // Transform nodes")
+        typescript_defs.append("  TransformNode = 'TransformNode',")
+        typescript_defs.append("  FilterNode = 'FilterNode',")
+        typescript_defs.append("  BatchNode = 'BatchNode',")
+        typescript_defs.append("  ")
+        typescript_defs.append("  // Utility nodes")
+        typescript_defs.append("  CalculatorNode = 'CalculatorNode',")
+        typescript_defs.append("  TextProcessorNode = 'TextProcessorNode',")
+        typescript_defs.append("  CodeExecutorNode = 'CodeExecutorNode',")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Node configuration interfaces for common nodes
+        typescript_defs.append("// Node configuration interfaces")
+        typescript_defs.append("export interface AudioTransformConfig {")
+        typescript_defs.append("  sampleRate?: number;")
+        typescript_defs.append("  channels?: number;")
+        typescript_defs.append("  dtype?: 'int16' | 'float32';")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        typescript_defs.append("export interface VoiceActivityDetectorConfig {")
+        typescript_defs.append("  sampleRate?: number;")
+        typescript_defs.append("  frameLength?: number;")
+        typescript_defs.append("  frameLengthMs?: number;")
+        typescript_defs.append("  vadMode?: 0 | 1 | 2 | 3;")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        typescript_defs.append("export interface VADTriggeredBufferConfig {")
+        typescript_defs.append("  sampleRate?: number;")
+        typescript_defs.append("  minSpeechDurationMs?: number;")
+        typescript_defs.append("  minSilenceDurationMs?: number;")
+        typescript_defs.append("  preSpeechBufferMs?: number;")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        typescript_defs.append("export interface TransformersPipelineConfig {")
+        typescript_defs.append("  task: string;")
+        typescript_defs.append("  model?: string;")
+        typescript_defs.append("  device?: string | number;")
+        typescript_defs.append("  model_kwargs?: Record<string, any>;")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Serialization formats
+        typescript_defs.append("// Serialization formats")
+        typescript_defs.append("export type SerializationFormat = 'json' | 'pickle';")
+        typescript_defs.append("")
+        
+        # Response types
+        typescript_defs.append("// Response types")
+        typescript_defs.append("export interface ExecutionResponse<T = any> {")
+        typescript_defs.append("  status: 'success' | 'error';")
+        typescript_defs.append("  data?: T;")
+        typescript_defs.append("  error?: {")
+        typescript_defs.append("    message: string;")
+        typescript_defs.append("    traceback?: string;")
+        typescript_defs.append("  };")
+        typescript_defs.append("  metrics?: {")
+        typescript_defs.append("    startTimestamp: number;")
+        typescript_defs.append("    endTimestamp: number;")
+        typescript_defs.append("    durationMs: number;")
+        typescript_defs.append("    memoryPeakMb?: number;")
+        typescript_defs.append("    cpuTimeMs?: number;")
+        typescript_defs.append("  };")
+        typescript_defs.append("}")
+        typescript_defs.append("")
+        
+        # Usage example
+        typescript_defs.append("// Example usage:")
+        typescript_defs.append("/*")
+        typescript_defs.append("import { RemoteExecutionClient, NodeType, AudioTransformConfig } from './remotemedia-types';")
+        typescript_defs.append("")
+        typescript_defs.append("const config: RemoteExecutorConfig = {")
+        typescript_defs.append("  host: 'localhost',")
+        typescript_defs.append("  port: 50052,")
+        typescript_defs.append("  protocol: 'grpc'")
+        typescript_defs.append("};")
+        typescript_defs.append("")
+        typescript_defs.append("const client = new RemoteExecutionClient(config);")
+        typescript_defs.append("")
+        typescript_defs.append("// Execute a node")
+        typescript_defs.append("const audioConfig: AudioTransformConfig = {")
+        typescript_defs.append("  sampleRate: 16000,")
+        typescript_defs.append("  channels: 1")
+        typescript_defs.append("};")
+        typescript_defs.append("")
+        typescript_defs.append("const result = await client.executeNode(")
+        typescript_defs.append("  NodeType.AudioTransform,")
+        typescript_defs.append("  audioConfig,")
+        typescript_defs.append("  audioData")
+        typescript_defs.append(");")
+        typescript_defs.append("*/")
+        
+        return "\n".join(typescript_defs)
+    
+    async def ExportTypeScriptDefinitions(
+        self,
+        request: execution_pb2.ExportTypeScriptRequest,
+        context: grpc.aio.ServicerContext
+    ) -> execution_pb2.ExportTypeScriptResponse:
+        """
+        Export TypeScript interface definitions.
+        
+        Args:
+            request: Export request
+            context: gRPC context
+            
+        Returns:
+            TypeScript definitions response
+        """
+        try:
+            typescript_defs = self._generate_typescript_interfaces()
+            
+            # Get available nodes for better type generation
+            available_nodes = await self.executor.get_available_nodes("")
+            
+            # Add specific node configs based on available nodes
+            if available_nodes:
+                additional_defs = []
+                additional_defs.append("")
+                additional_defs.append("// Available node configurations")
+                additional_defs.append("export interface NodeConfigurations {")
+                
+                for node_info in available_nodes:
+                    additional_defs.append(f"  '{node_info.node_type}': {{")
+                    for param in node_info.parameters:
+                        ts_type = self._python_to_typescript_type(param.type)
+                        optional = "?" if not param.required else ""
+                        additional_defs.append(f"    {param.name}{optional}: {ts_type};")
+                    additional_defs.append("  };")
+                
+                additional_defs.append("}")
+                typescript_defs += "\n" + "\n".join(additional_defs)
+            
+            return execution_pb2.ExportTypeScriptResponse(
+                status=types_pb2.EXECUTION_STATUS_SUCCESS,
+                typescript_definitions=typescript_defs,
+                version=self.config.version
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error exporting TypeScript definitions: {e}", exc_info=True)
+            return execution_pb2.ExportTypeScriptResponse(
+                status=types_pb2.EXECUTION_STATUS_ERROR,
+                error_message=str(e)
+            )
+    
+    def _python_to_typescript_type(self, python_type: str) -> str:
+        """
+        Convert Python type hints to TypeScript types.
+        
+        Args:
+            python_type: Python type as string
+            
+        Returns:
+            Corresponding TypeScript type
+        """
+        type_mapping = {
+            "str": "string",
+            "int": "number",
+            "float": "number",
+            "bool": "boolean",
+            "None": "null",
+            "Any": "any",
+            "Dict": "Record<string, any>",
+            "List": "any[]",
+            "Tuple": "any[]",
+            "Optional": "| undefined",
+            "Union": "|",
+            "bytes": "Uint8Array",
+            "numpy.ndarray": "number[] | Float32Array",
+        }
+        
+        for py_type, ts_type in type_mapping.items():
+            if py_type in python_type:
+                return ts_type
+        
+        # Default to any for unknown types
+        return "any"
     
     async def StreamNode(
         self,
@@ -888,9 +1488,19 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                     yield execution_pb2.StreamData(data=serialized_result)
 
         except Exception as e:
-            self.logger.error(f"Error during StreamNode execution: {e}", exc_info=True)
-            # Send an error message back to the client
-            yield execution_pb2.StreamData(error_message=f"Error on server: {e}")
+            # Use enhanced error handling for better diagnostics
+            operation = f"StreamNode[{node_type if 'node_type' in locals() else 'unknown'}]"
+            error_details = await self.error_handler.handle_error(
+                e, operation,
+                node_type=node_type if 'node_type' in locals() else 'unknown',
+                connection_id=connection_id,
+                session_id=session_id
+            )
+            
+            # Send detailed error message back to the client
+            yield execution_pb2.StreamData(
+                error_message=f"[{error_details['error_category'].upper()}] {error_details['error_message']}"
+            )
         
         finally:
             # Clean up all resources for this connection
@@ -974,10 +1584,7 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
             exit_code=-1
         )
     
-    def _get_traceback(self) -> str:
-        """Get current exception traceback."""
-        import traceback
-        return traceback.format_exc()
+
     
     async def _handle_stream_init(self, init_request) -> str:
         """Handle streaming session initialization."""
@@ -1056,10 +1663,18 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                 generator_id=generator_id
             )
         except Exception as e:
-            self.logger.error(f"Error in InitGenerator: {e}", exc_info=True)
+            # Use enhanced error handling
+            operation = f"InitGenerator[{request.method_name}]"
+            error_details = await self.error_handler.handle_error(
+                e, operation,
+                session_id=request.session_id,
+                method_name=request.method_name,
+                serialization_format=request.serialization_format
+            )
+            
             return execution_pb2.InitGeneratorResponse(
-                status=types_pb2.EXECUTION_STATUS_ERROR,
-                error_message=str(e)
+                status=error_details["status"],
+                error_message=error_details["error_message"]
             )
     
     async def GetNextBatch(
@@ -1104,10 +1719,18 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                     has_more=not session.is_exhausted
                 )
         except Exception as e:
-            self.logger.error(f"Error in GetNextBatch: {e}", exc_info=True)
+            # Use enhanced error handling
+            operation = f"GetNextBatch[{request.generator_id}]"
+            error_details = await self.error_handler.handle_error(
+                e, operation,
+                generator_id=request.generator_id,
+                batch_size=request.batch_size,
+                serialization_format=request.serialization_format
+            )
+            
             return execution_pb2.GetNextBatchResponse(
-                status=types_pb2.EXECUTION_STATUS_ERROR,
-                error_message=str(e)
+                status=error_details["status"],
+                error_message=error_details["error_message"]
             )
     
     async def CloseGenerator(
@@ -1132,9 +1755,15 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                 status=types_pb2.EXECUTION_STATUS_SUCCESS
             )
         except Exception as e:
-            self.logger.error(f"Error in CloseGenerator: {e}", exc_info=True)
+            # Use enhanced error handling
+            operation = f"CloseGenerator[{request.generator_id}]"
+            error_details = await self.error_handler.handle_error(
+                e, operation,
+                generator_id=request.generator_id
+            )
+            
             return execution_pb2.CloseGeneratorResponse(
-                status=types_pb2.EXECUTION_STATUS_ERROR
+                status=error_details["status"]
             )
 
 

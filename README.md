@@ -19,6 +19,7 @@ The RemoteMedia Processing SDK enables developers to create complex, real-time p
 - **Enhanced Code Packaging**: Handles modules from anywhere in the filesystem, not just project directory
 - **Automatic Module Loading**: Pre-loads Python modules on the server for proper deserialization
 - **Pip Package Dependencies**: Automatically install required packages on remote servers
+- **TypeScript/Node.js Support**: Export TypeScript interface definitions for type-safe Node.js integration
 
 ## Development Status
 
@@ -179,6 +180,43 @@ See `examples/test_streaming_generators.py` for comprehensive examples.
 
 See `examples/simplest_proxy.py` and `examples/test_transparent_generators.py` for more examples.
 
+### TypeScript/Node.js Integration
+
+Generate TypeScript interface definitions for type-safe Node.js integration:
+
+```bash
+# Generate TypeScript definitions
+python scripts/generate_typescript_defs.py -o remotemedia-types.d.ts
+```
+
+Use from Node.js/TypeScript:
+
+```typescript
+import { RemoteExecutionClient, NodeType, AudioTransformConfig } from './remotemedia-types';
+
+const config: RemoteExecutorConfig = {
+  host: 'localhost',
+  port: 50052,
+  protocol: 'grpc'
+};
+
+const client = new RemoteExecutionClient(config);
+
+// Execute with full type safety
+const audioConfig: AudioTransformConfig = {
+  sampleRate: 16000,
+  channels: 1
+};
+
+const result = await client.executeNode(
+  NodeType.AudioTransform,
+  audioConfig,
+  audioData
+);
+```
+
+See [TypeScript/Node.js Usage Guide](docs/TYPESCRIPT_USAGE.md) for complete documentation.
+
 ### Pip Package Dependencies (NEW!)
 
 The SDK now supports automatic installation of pip packages on the remote server:
@@ -303,6 +341,7 @@ scripts/                    # Development scripts
 ## Documentation
 
 - [**Developer Guide**](DEVELOPER_GUIDE.md) - **Start here!** Essential guide for building with the SDK.
+- [**TypeScript/Node.js Usage**](docs/TYPESCRIPT_USAGE.md) - Guide for using the SDK from Node.js applications
 - [Development Strategy](DevelopmentStrategyDocument.md)
 - [Project Tracking](PROJECT_TRACKING.md)
 - [API Documentation](docs/) (Coming soon)

@@ -32,6 +32,9 @@ service RemoteExecutionService {
   rpc InitGenerator(InitGeneratorRequest) returns (InitGeneratorResponse);
   rpc GetNextBatch(GetNextBatchRequest) returns (GetNextBatchResponse);
   rpc CloseGenerator(CloseGeneratorRequest) returns (CloseGeneratorResponse);
+  
+  // Export TypeScript interface definitions
+  rpc ExportTypeScriptDefinitions(ExportTypeScriptRequest) returns (ExportTypeScriptResponse);
 }
 
 // Execute SDK Node Request
@@ -233,4 +236,18 @@ message CloseGeneratorRequest {
 
 message CloseGeneratorResponse {
   ExecutionStatus status = 1;
+}
+
+// TypeScript definitions export request
+message ExportTypeScriptRequest {
+  bool include_node_configs = 1;   // Include specific node configuration interfaces
+  bool include_examples = 2;       // Include usage examples
+}
+
+// TypeScript definitions export response
+message ExportTypeScriptResponse {
+  ExecutionStatus status = 1;
+  string typescript_definitions = 2; // Generated TypeScript interface definitions
+  string error_message = 3;
+  string version = 4;               // Service version used for generation
 } 

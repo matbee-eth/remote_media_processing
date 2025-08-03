@@ -21,6 +21,7 @@ try:
         CalculatorNode, CodeExecutorNode, TextProcessorNode,
         SerializedClassExecutorNode
     )
+    from remotemedia.nodes.ml import TransformersPipelineNode
     from remotemedia.serialization import JSONSerializer, PickleSerializer
     from remotemedia.core.node import Node
     SDK_AVAILABLE = True
@@ -35,6 +36,7 @@ except ImportError:
     DataTransform = FormatConverter = None
     CalculatorNode = CodeExecutorNode = TextProcessorNode = None
     SerializedClassExecutorNode = None
+    TransformersPipelineNode = None
     JSONSerializer = PickleSerializer = None
 
 from config import ServiceConfig
@@ -120,6 +122,10 @@ class TaskExecutor:
             if SerializedClassExecutorNode:
                 registry['SerializedClassExecutorNode'] = SerializedClassExecutorNode
             
+            # ML nodes
+            if TransformersPipelineNode:
+                registry['TransformersPipelineNode'] = TransformersPipelineNode
+            
             self.logger.info(f"Registered {len(registry)} SDK nodes")
         else:
             self.logger.warning("SDK not available, no nodes registered")
@@ -191,6 +197,7 @@ class TaskExecutor:
         if not serializer:
             raise ValueError(f"Unknown serialization format: {serialization_format}")
         
+        node = None
         try:
             # Deserialize input data
             input_obj = serializer.deserialize(input_data)
@@ -198,22 +205,71 @@ class TaskExecutor:
             
             # Create and configure node using SDK
             node_class = self.node_registry[node_type]
-            node = node_class(name=f"remote_{node_type}", **config)
+            
+            # Parse config values - handle JSON strings and type conversions
+            import json
+            import ast
+            parsed_config = {}
+            for key, value in config.items():
+                if isinstance(value, str):
+                    # Try to parse as JSON first (for dicts/lists)
+                    try:
+                        parsed_value = json.loads(value)
+                        parsed_config[key] = parsed_value
+                    except json.JSONDecodeError:
+                        # Try to parse as Python literal (numbers, booleans)
+                        try:
+                            parsed_value = ast.literal_eval(value)
+                            parsed_config[key] = parsed_value
+                        except (ValueError, SyntaxError):
+                            # Keep as string if all parsing fails
+                            parsed_config[key] = value
+                else:
+                    parsed_config[key] = value
+            
+            # Create node 
+            node = node_class(name=f"remote_{node_type}", **parsed_config)
             
             # Initialize node (if method exists)
             if hasattr(node, 'initialize'):
-                await node.initialize()
+                try:
+                    await node.initialize()
+                except Exception as init_error:
+                    self.logger.error(f"Failed to initialize {node_type}: {init_error}")
+                    # Try cleanup before re-raising
+                    if hasattr(node, 'cleanup'):
+                        try:
+                            await node.cleanup()
+                        except:
+                            pass
+                    raise RuntimeError(f"Node initialization failed: {init_error}") from init_error
             
             # Execute node
-            output_obj = node.process(input_obj)
+            import asyncio
+            try:
+                if asyncio.iscoroutinefunction(node.process):
+                    output_obj = await node.process(input_obj)
+                else:
+                    output_obj = node.process(input_obj)
+            except Exception as process_error:
+                self.logger.error(f"Failed to process data with {node_type}: {process_error}")
+                raise RuntimeError(f"Node processing failed: {process_error}") from process_error
             
             # Serialize output
-            output_data = serializer.serialize(output_obj)
-            output_size = len(output_data)
+            try:
+                output_data = serializer.serialize(output_obj)
+                output_size = len(output_data)
+            except Exception as serialize_error:
+                self.logger.error(f"Failed to serialize output from {node_type}: {serialize_error}")
+                raise RuntimeError(f"Output serialization failed: {serialize_error}") from serialize_error
             
             # Clean up node (if method exists)
             if hasattr(node, 'cleanup'):
-                await node.cleanup()
+                try:
+                    await node.cleanup()
+                except Exception as cleanup_error:
+                    self.logger.warning(f"Cleanup failed for {node_type}: {cleanup_error}")
+                    # Don't fail the entire operation for cleanup issues
             
             execution_time = int((time.time() - start_time) * 1000)
             
@@ -228,8 +284,33 @@ class TaskExecutor:
             )
             
         except Exception as e:
-            self.logger.error(f"Error executing SDK node {node_type}: {e}")
-            raise RuntimeError(f"Node execution failed: {e}") from e
+            # Enhanced error logging with more context
+            self.logger.error(f"Error executing SDK node {node_type}: {e}", exc_info=True)
+            
+            # Try emergency cleanup if node was created
+            if node is not None and hasattr(node, 'cleanup'):
+                try:
+                    await node.cleanup()
+                    self.logger.info(f"Emergency cleanup completed for {node_type}")
+                except Exception as cleanup_error:
+                    self.logger.warning(f"Emergency cleanup failed for {node_type}: {cleanup_error}")
+            
+            # Clear CUDA cache on error if available
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    self.logger.info("Cleared CUDA cache after error")
+            except ImportError:
+                pass
+            
+            # Re-raise with the original error but preserve the chain
+            if isinstance(e, RuntimeError) and "failed" in str(e).lower():
+                # Already a well-formatted error from above
+                raise e
+            else:
+                # Generic error, wrap it
+                raise RuntimeError(f"Node execution failed: {e}") from e
     
     async def execute_custom_task(
         self,

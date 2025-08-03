@@ -1,0 +1,21 @@
+{
+  "name": "remotemedia-nodejs-example",
+  "version": "1.0.0",
+  "description": "Example Node.js/TypeScript client for RemoteMedia Processing SDK",
+  "main": "example-client.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node example-client.js",
+    "dev": "ts-node example-client.ts",
+    "generate-types": "python ../../scripts/generate_typescript_defs.py -o ../../remotemedia-types.d.ts"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.9.0",
+    "@grpc/proto-loader": "^0.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -86,6 +86,11 @@ class RemoteExecutionServiceStub(object):
                 request_serializer=execution__pb2.CloseGeneratorRequest.SerializeToString,
                 response_deserializer=execution__pb2.CloseGeneratorResponse.FromString,
                 _registered_method=True)
+        self.ExportTypeScriptDefinitions = channel.unary_unary(
+                '/remotemedia.execution.RemoteExecutionService/ExportTypeScriptDefinitions',
+                request_serializer=execution__pb2.ExportTypeScriptRequest.SerializeToString,
+                response_deserializer=execution__pb2.ExportTypeScriptResponse.FromString,
+                _registered_method=True)
 
 
 class RemoteExecutionServiceServicer(object):
@@ -161,6 +166,13 @@ class RemoteExecutionServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ExportTypeScriptDefinitions(self, request, context):
+        """Export TypeScript interface definitions
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_RemoteExecutionServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -213,6 +225,11 @@ def add_RemoteExecutionServiceServicer_to_server(servicer, server):
                     servicer.CloseGenerator,
                     request_deserializer=execution__pb2.CloseGeneratorRequest.FromString,
                     response_serializer=execution__pb2.CloseGeneratorResponse.SerializeToString,
+            ),
+            'ExportTypeScriptDefinitions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExportTypeScriptDefinitions,
+                    request_deserializer=execution__pb2.ExportTypeScriptRequest.FromString,
+                    response_serializer=execution__pb2.ExportTypeScriptResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -487,6 +504,33 @@ class RemoteExecutionService(object):
             '/remotemedia.execution.RemoteExecutionService/CloseGenerator',
             execution__pb2.CloseGeneratorRequest.SerializeToString,
             execution__pb2.CloseGeneratorResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExportTypeScriptDefinitions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/remotemedia.execution.RemoteExecutionService/ExportTypeScriptDefinitions',
+            execution__pb2.ExportTypeScriptRequest.SerializeToString,
+            execution__pb2.ExportTypeScriptResponse.FromString,
             options,
             channel_credentials,
             insecure,

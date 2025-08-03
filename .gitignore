@@ -154,3 +154,4 @@ tmp/
 remote_service/build/
 remote_service/logs/ 
 generated_responses/
+node_modules/

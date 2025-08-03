@@ -1,0 +1,37 @@
+{
+  "name": "remotemedia-huggingface-example",
+  "version": "1.0.0",
+  "description": "Node.js example for executing Hugging Face pipelines remotely using RemoteMedia SDK",
+  "main": "huggingface-pipeline-client.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node index.ts",
+    "dev": "ts-node examples/full-featured-client.ts",
+    "sentiment": "ts-node examples/sentiment-analysis.ts",
+    "generation": "ts-node examples/text-generation.ts",
+    "advanced": "ts-node examples/advanced-text-generation.ts",
+    "full": "ts-node examples/full-featured-client.ts all",
+    "qa": "ts-node examples/full-featured-client.ts qa",
+    "classification": "ts-node examples/full-featured-client.ts classification",
+    "ner": "ts-node examples/full-featured-client.ts ner",
+    "test:kwargs": "ts-node tests/test-kwargs.ts",
+    "test:types": "ts-node tests/test-types.ts",
+    "test:debug": "ts-node tests/debug-response-format.ts",
+    "proxy:simple": "ts-node examples/proxy/simple-proxy-example.ts",
+    "proxy:calculator": "ts-node examples/proxy/calculator-proxy.ts",
+    "proxy:nodes": "ts-node examples/proxy/node-execution-example.ts",
+    "proxy:demo": "ts-node examples/proxy/comprehensive-demo.ts"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.9.0",
+    "@grpc/proto-loader": "^0.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
