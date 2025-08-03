@@ -1050,248 +1050,27 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
 
             logger.info(f"StreamObject connection closed for {connection_id}")
     
-    def _generate_typescript_interfaces(self) -> str:
+    async def _get_node_definitions_json(self) -> str:
         """
-        Generate TypeScript interface definitions for the remote media processing system.
+        Get raw node definitions as JSON for TypeScript generation.
         
         Returns:
-            String containing TypeScript interface definitions
+            JSON string containing all node definitions
         """
-        typescript_defs = []
+        import json
+        from datetime import datetime
         
-        # Header
-        typescript_defs.append("/**")
-        typescript_defs.append(" * TypeScript interface definitions for RemoteMedia Processing SDK")
-        typescript_defs.append(" * Generated from Python server definitions")
-        typescript_defs.append(" */")
-        typescript_defs.append("")
+        # Get all available nodes dynamically
+        available_nodes = await self.executor.get_available_nodes()
         
-        # Core Node interface
-        typescript_defs.append("// Core Node interface")
-        typescript_defs.append("export interface RemoteMediaNode {")
-        typescript_defs.append("  name?: string;")
-        typescript_defs.append("  config?: Record<string, any>;")
-        typescript_defs.append("  process(data: any): any | Promise<any>;")
-        typescript_defs.append("  initialize?(): Promise<void>;")
-        typescript_defs.append("  cleanup?(): Promise<void>;")
-        typescript_defs.append("  flush?(): any | Promise<any>;")
-        typescript_defs.append("}")
-        typescript_defs.append("")
+        # Structure the data for TypeScript generation
+        node_definitions = {
+            "generated_at": datetime.now().isoformat(),
+            "service_version": self.config.version,
+            "nodes": available_nodes
+        }
         
-        # Session State interfaces
-        typescript_defs.append("// Session State interfaces")
-        typescript_defs.append("export interface SessionState {")
-        typescript_defs.append("  sessionId: string;")
-        typescript_defs.append("  data: Record<string, any>;")
-        typescript_defs.append("  createdAt: Date;")
-        typescript_defs.append("  lastAccessed: Date;")
-        typescript_defs.append("  metadata: Record<string, any>;")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        # Remote Executor Config
-        typescript_defs.append("// Remote Executor Configuration")
-        typescript_defs.append("export interface RemoteExecutorConfig {")
-        typescript_defs.append("  host: string;")
-        typescript_defs.append("  port: number;")
-        typescript_defs.append("  protocol?: 'grpc' | 'http';")
-        typescript_defs.append("  authToken?: string;")
-        typescript_defs.append("  timeout?: number;")
-        typescript_defs.append("  maxRetries?: number;")
-        typescript_defs.append("  sslEnabled?: boolean;")
-        typescript_defs.append("  pipPackages?: string[];")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        # Execution Options
-        typescript_defs.append("// Execution Options")
-        typescript_defs.append("export interface ExecutionOptions {")
-        typescript_defs.append("  timeout?: number;")
-        typescript_defs.append("  maxMemoryMb?: number;")
-        typescript_defs.append("  cpuLimit?: number;")
-        typescript_defs.append("  enableGpu?: boolean;")
-        typescript_defs.append("  priority?: 'low' | 'normal' | 'high';")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        # Service Client interfaces
-        typescript_defs.append("// Remote Execution Client interfaces")
-        typescript_defs.append("export interface RemoteExecutionClient {")
-        typescript_defs.append("  executeNode(")
-        typescript_defs.append("    nodeType: string,")
-        typescript_defs.append("    config: Record<string, any>,")
-        typescript_defs.append("    inputData: any,")
-        typescript_defs.append("    options?: ExecutionOptions")
-        typescript_defs.append("  ): Promise<any>;")
-        typescript_defs.append("  ")
-        typescript_defs.append("  executeCustomTask(")
-        typescript_defs.append("    codePackage: Uint8Array,")
-        typescript_defs.append("    entryPoint: string,")
-        typescript_defs.append("    inputData: any,")
-        typescript_defs.append("    dependencies?: string[],")
-        typescript_defs.append("    options?: ExecutionOptions")
-        typescript_defs.append("  ): Promise<any>;")
-        typescript_defs.append("  ")
-        typescript_defs.append("  streamNode(")
-        typescript_defs.append("    nodeType: string,")
-        typescript_defs.append("    config: Record<string, any>,")
-        typescript_defs.append("    onData: (data: any) => void,")
-        typescript_defs.append("    onError?: (error: Error) => void")
-        typescript_defs.append("  ): StreamHandle;")
-        typescript_defs.append("  ")
-        typescript_defs.append("  close(): Promise<void>;")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        # Stream Handle interface
-        typescript_defs.append("// Stream Handle for bidirectional streaming")
-        typescript_defs.append("export interface StreamHandle {")
-        typescript_defs.append("  send(data: any): Promise<void>;")
-        typescript_defs.append("  close(): Promise<void>;")
-        typescript_defs.append("  readonly sessionId: string;")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        # Remote Proxy Client interfaces
-        typescript_defs.append("// Remote Proxy Client for transparent object execution")
-        typescript_defs.append("export interface RemoteProxyClient {")
-        typescript_defs.append("  createProxy<T extends object>(")
-        typescript_defs.append("    obj: T,")
-        typescript_defs.append("    dependencies?: string[]")
-        typescript_defs.append("  ): Promise<RemoteProxy<T>>;")
-        typescript_defs.append("  ")
-        typescript_defs.append("  close(): Promise<void>;")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        # Remote Proxy type
-        typescript_defs.append("// Remote Proxy type wrapper")
-        typescript_defs.append("export type RemoteProxy<T> = {")
-        typescript_defs.append("  [K in keyof T]: T[K] extends (...args: any[]) => any")
-        typescript_defs.append("    ? (...args: Parameters<T[K]>) => Promise<Awaited<ReturnType<T[K]>>>")
-        typescript_defs.append("    : Promise<T[K]>;")
-        typescript_defs.append("};")
-        typescript_defs.append("")
-        
-        # Generator interfaces
-        typescript_defs.append("// Generator support interfaces")
-        typescript_defs.append("export interface RemoteGenerator<T> {")
-        typescript_defs.append("  next(): Promise<{ value: T; done: boolean }>;")
-        typescript_defs.append("  close(): Promise<void>;")
-        typescript_defs.append("  [Symbol.asyncIterator](): AsyncIterator<T>;")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        # Common node types
-        typescript_defs.append("// Common built-in node types")
-        typescript_defs.append("export enum NodeType {")
-        typescript_defs.append("  // Audio nodes")
-        typescript_defs.append("  AudioTransform = 'AudioTransform',")
-        typescript_defs.append("  AudioBuffer = 'AudioBuffer',")
-        typescript_defs.append("  VoiceActivityDetector = 'VoiceActivityDetector',")
-        typescript_defs.append("  VADTriggeredBuffer = 'VADTriggeredBuffer',")
-        typescript_defs.append("  ")
-        typescript_defs.append("  // ML nodes")
-        typescript_defs.append("  UltravoxNode = 'UltravoxNode',")
-        typescript_defs.append("  KokoroTTSNode = 'KokoroTTSNode',")
-        typescript_defs.append("  TransformersPipelineNode = 'TransformersPipelineNode',")
-        typescript_defs.append("  ")
-        typescript_defs.append("  // Transform nodes")
-        typescript_defs.append("  TransformNode = 'TransformNode',")
-        typescript_defs.append("  FilterNode = 'FilterNode',")
-        typescript_defs.append("  BatchNode = 'BatchNode',")
-        typescript_defs.append("  ")
-        typescript_defs.append("  // Utility nodes")
-        typescript_defs.append("  CalculatorNode = 'CalculatorNode',")
-        typescript_defs.append("  TextProcessorNode = 'TextProcessorNode',")
-        typescript_defs.append("  CodeExecutorNode = 'CodeExecutorNode',")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        # Node configuration interfaces for common nodes
-        typescript_defs.append("// Node configuration interfaces")
-        typescript_defs.append("export interface AudioTransformConfig {")
-        typescript_defs.append("  sampleRate?: number;")
-        typescript_defs.append("  channels?: number;")
-        typescript_defs.append("  dtype?: 'int16' | 'float32';")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        typescript_defs.append("export interface VoiceActivityDetectorConfig {")
-        typescript_defs.append("  sampleRate?: number;")
-        typescript_defs.append("  frameLength?: number;")
-        typescript_defs.append("  frameLengthMs?: number;")
-        typescript_defs.append("  vadMode?: 0 | 1 | 2 | 3;")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        typescript_defs.append("export interface VADTriggeredBufferConfig {")
-        typescript_defs.append("  sampleRate?: number;")
-        typescript_defs.append("  minSpeechDurationMs?: number;")
-        typescript_defs.append("  minSilenceDurationMs?: number;")
-        typescript_defs.append("  preSpeechBufferMs?: number;")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        typescript_defs.append("export interface TransformersPipelineConfig {")
-        typescript_defs.append("  task: string;")
-        typescript_defs.append("  model?: string;")
-        typescript_defs.append("  device?: string | number;")
-        typescript_defs.append("  model_kwargs?: Record<string, any>;")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        # Serialization formats
-        typescript_defs.append("// Serialization formats")
-        typescript_defs.append("export type SerializationFormat = 'json' | 'pickle';")
-        typescript_defs.append("")
-        
-        # Response types
-        typescript_defs.append("// Response types")
-        typescript_defs.append("export interface ExecutionResponse<T = any> {")
-        typescript_defs.append("  status: 'success' | 'error';")
-        typescript_defs.append("  data?: T;")
-        typescript_defs.append("  error?: {")
-        typescript_defs.append("    message: string;")
-        typescript_defs.append("    traceback?: string;")
-        typescript_defs.append("  };")
-        typescript_defs.append("  metrics?: {")
-        typescript_defs.append("    startTimestamp: number;")
-        typescript_defs.append("    endTimestamp: number;")
-        typescript_defs.append("    durationMs: number;")
-        typescript_defs.append("    memoryPeakMb?: number;")
-        typescript_defs.append("    cpuTimeMs?: number;")
-        typescript_defs.append("  };")
-        typescript_defs.append("}")
-        typescript_defs.append("")
-        
-        # Usage example
-        typescript_defs.append("// Example usage:")
-        typescript_defs.append("/*")
-        typescript_defs.append("import { RemoteExecutionClient, NodeType, AudioTransformConfig } from './remotemedia-types';")
-        typescript_defs.append("")
-        typescript_defs.append("const config: RemoteExecutorConfig = {")
-        typescript_defs.append("  host: 'localhost',")
-        typescript_defs.append("  port: 50052,")
-        typescript_defs.append("  protocol: 'grpc'")
-        typescript_defs.append("};")
-        typescript_defs.append("")
-        typescript_defs.append("const client = new RemoteExecutionClient(config);")
-        typescript_defs.append("")
-        typescript_defs.append("// Execute a node")
-        typescript_defs.append("const audioConfig: AudioTransformConfig = {")
-        typescript_defs.append("  sampleRate: 16000,")
-        typescript_defs.append("  channels: 1")
-        typescript_defs.append("};")
-        typescript_defs.append("")
-        typescript_defs.append("const result = await client.executeNode(")
-        typescript_defs.append("  NodeType.AudioTransform,")
-        typescript_defs.append("  audioConfig,")
-        typescript_defs.append("  audioData")
-        typescript_defs.append(");")
-        typescript_defs.append("*/")
-        
-        return "\n".join(typescript_defs)
+        return json.dumps(node_definitions, indent=2, default=str)
     
     async def ExportTypeScriptDefinitions(
         self,
@@ -1309,32 +1088,12 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
             TypeScript definitions response
         """
         try:
-            typescript_defs = self._generate_typescript_interfaces()
-            
-            # Get available nodes for better type generation
-            available_nodes = await self.executor.get_available_nodes("")
-            
-            # Add specific node configs based on available nodes
-            if available_nodes:
-                additional_defs = []
-                additional_defs.append("")
-                additional_defs.append("// Available node configurations")
-                additional_defs.append("export interface NodeConfigurations {")
-                
-                for node_info in available_nodes:
-                    additional_defs.append(f"  '{node_info.node_type}': {{")
-                    for param in node_info.parameters:
-                        ts_type = self._python_to_typescript_type(param.type)
-                        optional = "?" if not param.required else ""
-                        additional_defs.append(f"    {param.name}{optional}: {ts_type};")
-                    additional_defs.append("  };")
-                
-                additional_defs.append("}")
-                typescript_defs += "\n" + "\n".join(additional_defs)
+            # Return raw node definitions as JSON for Node.js processing
+            node_definitions_json = await self._get_node_definitions_json()
             
             return execution_pb2.ExportTypeScriptResponse(
                 status=types_pb2.EXECUTION_STATUS_SUCCESS,
-                typescript_definitions=typescript_defs,
+                typescript_definitions=node_definitions_json,
                 version=self.config.version
             )
             

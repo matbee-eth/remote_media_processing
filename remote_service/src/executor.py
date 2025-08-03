@@ -6,6 +6,7 @@ in a secure, controlled environment.
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from typing import Dict, Any, List, Optional
@@ -374,12 +375,15 @@ class TaskExecutor:
             if category and node_category != category:
                 continue
             
+            # Extract parameters using introspection
+            parameters = self._extract_node_parameters(node_class)
+            
             # Create node info
             node_info = {
                 'node_type': node_type,
                 'category': node_category,
                 'description': getattr(node_class, '__doc__', f"{node_type} processing node") or f"{node_type} processing node",
-                'parameters': []  # TODO: Extract parameters from node class
+                'parameters': parameters
             }
             nodes.append(node_info)
         
@@ -387,7 +391,7 @@ class TaskExecutor:
     
     def _extract_node_parameters(self, node_class: type) -> List[Dict[str, Any]]:
         """
-        Extract parameter information from a node class.
+        Extract parameter information from a node class using introspection.
         
         Args:
             node_class: Node class to inspect
@@ -395,6 +399,201 @@ class TaskExecutor:
         Returns:
             List of parameter information
         """
-        # TODO: Implement parameter extraction using inspection
-        # This would analyze the __init__ method signature and docstrings
-        return [] 
+        import inspect
+        import typing
+        from typing import get_type_hints, get_origin, get_args
+        
+        parameters = []
+        
+        try:
+            # Get all __init__ methods in the MRO (Method Resolution Order)
+            # This ensures we capture parameters from parent classes too
+            all_parameters = {}
+            all_descriptions = {}
+            
+            for cls in node_class.__mro__:
+                if cls == object:  # Skip object class
+                    continue
+                    
+                init_method = getattr(cls, '__init__', None)
+                if not init_method:
+                    continue
+                
+                # Get signature and type hints for this class
+                try:
+                    sig = inspect.signature(init_method)
+                    
+                    # Try to get type hints
+                    try:
+                        type_hints = get_type_hints(init_method)
+                    except Exception as e:
+                        self.logger.debug(f"Could not get type hints for {cls.__name__}: {e}")
+                        type_hints = {}
+                    
+                    # Parse docstring for parameter descriptions
+                    docstring = inspect.getdoc(init_method) or ""
+                    param_descriptions = self._parse_docstring_params(docstring)
+                    all_descriptions.update(param_descriptions)
+                    
+                    # Process parameters for this class
+                    for param_name, param in sig.parameters.items():
+                        # Skip 'self' and any **kwargs style parameters
+                        if param_name == 'self' or param.kind == inspect.Parameter.VAR_KEYWORD:
+                            continue
+                        
+                        # Only add if we haven't seen this parameter yet (subclass takes precedence)
+                        if param_name not in all_parameters:
+                            # Determine parameter type
+                            param_type = type_hints.get(param_name, param.annotation)
+                            type_str = self._get_type_string(param_type)
+                            
+                            # Determine if required (no default value)
+                            required = param.default == inspect.Parameter.empty
+                            default_value = None if required else param.default
+                            
+                            # Get description from docstring
+                            description = param_descriptions.get(param_name, "")
+                            
+                            # Handle special types
+                            allowed_values = None
+                            if hasattr(param_type, '__args__') and hasattr(param_type, '__origin__'):
+                                # Handle Union types (like Optional)
+                                if get_origin(param_type) is typing.Union:
+                                    args = get_args(param_type)
+                                    # Check if it's Optional (Union with None)
+                                    if len(args) == 2 and type(None) in args:
+                                        type_str = self._get_type_string(args[0] if args[1] is type(None) else args[1])
+                                        if required and default_value is None:
+                                            required = False
+                                            default_value = None
+                            
+                            param_info = {
+                                'name': param_name,
+                                'type': type_str,
+                                'required': required,
+                                'description': description,
+                                'source_class': cls.__name__
+                            }
+                            
+                            if default_value is not None:
+                                param_info['default_value'] = default_value
+                                
+                            if allowed_values:
+                                param_info['allowed_values'] = allowed_values
+                                
+                            all_parameters[param_name] = param_info
+                            
+                except Exception as e:
+                    self.logger.debug(f"Failed to process {cls.__name__}.__init__: {e}")
+                    continue
+            
+            # Convert to list and sort (put node-specific parameters first)
+            for param_info in all_parameters.values():
+                parameters.append(param_info)
+                self.logger.debug(f"Added parameter {param_info['name']} from {param_info['source_class']} for {node_class.__name__}: {param_info}")
+            
+            # Sort parameters: node-specific first, then base class parameters
+            def sort_key(param):
+                if param['source_class'] == node_class.__name__:
+                    return (0, param['name'])  # Node-specific parameters first
+                else:
+                    return (1, param['name'])  # Base class parameters second
+            
+            parameters.sort(key=sort_key)
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to extract parameters for {node_class.__name__}: {e}")
+            import traceback
+            self.logger.debug(f"Full traceback: {traceback.format_exc()}")
+            
+        return parameters
+    
+    def _parse_docstring_params(self, docstring: str) -> Dict[str, str]:
+        """
+        Parse parameter descriptions from docstring.
+        
+        Args:
+            docstring: The docstring to parse
+            
+        Returns:
+            Dictionary mapping parameter names to descriptions
+        """
+        param_descriptions = {}
+        
+        # Look for Args: section
+        lines = docstring.split('\n')
+        in_args_section = False
+        current_param = None
+        current_desc = []
+        
+        for line in lines:
+            line = line.strip()
+            
+            if line.startswith('Args:'):
+                in_args_section = True
+                continue
+            elif line.startswith(('Returns:', 'Yields:', 'Raises:', 'Note:', 'Example:')):
+                in_args_section = False
+                if current_param:
+                    param_descriptions[current_param] = ' '.join(current_desc).strip()
+                break
+                
+            if in_args_section and line:
+                # Check if this is a parameter definition
+                if ':' in line and not line.startswith(' '):
+                    # Save previous parameter
+                    if current_param:
+                        param_descriptions[current_param] = ' '.join(current_desc).strip()
+                    
+                    # Start new parameter
+                    parts = line.split(':', 1)
+                    param_part = parts[0].strip()
+                    # Extract parameter name (remove type hints)
+                    if '(' in param_part:
+                        current_param = param_part.split('(')[0].strip()
+                    else:
+                        current_param = param_part
+                    
+                    current_desc = [parts[1].strip()] if len(parts) > 1 else []
+                elif current_param and line.startswith(' '):
+                    # Continuation of parameter description
+                    current_desc.append(line.strip())
+        
+        # Save last parameter
+        if current_param:
+            param_descriptions[current_param] = ' '.join(current_desc).strip()
+            
+        return param_descriptions
+    
+    def _get_type_string(self, type_annotation) -> str:
+        """
+        Convert Python type annotation to string representation.
+        
+        Args:
+            type_annotation: The type annotation
+            
+        Returns:
+            String representation of the type
+        """
+        if type_annotation == inspect.Parameter.empty:
+            return 'any'
+            
+        # Handle basic types
+        if type_annotation in (int, float, str, bool):
+            return type_annotation.__name__
+            
+        if hasattr(type_annotation, '__name__'):
+            return type_annotation.__name__
+        elif hasattr(type_annotation, '__origin__'):
+            # Handle generic types like List[str], Dict[str, Any]
+            origin = type_annotation.__origin__
+            if origin is list:
+                return 'List'
+            elif origin is dict:
+                return 'Dict'
+            elif origin is tuple:
+                return 'Tuple'
+            else:
+                return str(origin.__name__ if hasattr(origin, '__name__') else origin)
+        else:
+            return str(type_annotation) 

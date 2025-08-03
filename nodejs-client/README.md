@@ -49,6 +49,59 @@ console.log(result);
 // Output: [{ label: 'POSITIVE', score: 0.9998 }]
 ```
 
+## TypeScript Type Generation
+
+Generate up-to-date TypeScript definitions for all registered server nodes:
+
+### Quick Generation
+
+```bash
+# Using npm script (recommended)
+npm run generate-types
+
+# Or using the shell script
+./generate-types.sh
+```
+
+### What Gets Generated
+
+The type generator creates TypeScript definitions for:
+- All registered node types with proper parameter interfaces
+- Type-safe client interfaces with generics
+- Complete documentation from Python docstrings
+
+Example generated interface:
+```typescript
+export interface AudioTransformConfig {
+  /** The target sample rate for the audio. (default: 44100) */
+  output_sample_rate?: number;
+  /** The target number of channels for the audio. (default: 2) */
+  output_channels?: number;
+}
+```
+
+### Using Generated Types
+
+```typescript
+import { NodeType, AudioTransformConfig } from './generated-types';
+
+// Type-safe node configuration
+const config: AudioTransformConfig = {
+  output_sample_rate: 16000,
+  output_channels: 1
+};
+
+// The client now provides full type checking
+const result = await client.executeNode(NodeType.AudioTransform, config, audioData);
+```
+
+### Configuration
+
+Customize generation with environment variables:
+```bash
+GRPC_HOST=localhost GRPC_PORT=50052 OUTPUT_DIR=./my-types npm run generate-types
+```
+
 ## Usage Patterns
 
 ### Python-style Context Manager
