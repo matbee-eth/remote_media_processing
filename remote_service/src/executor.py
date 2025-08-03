@@ -381,13 +381,17 @@ class TaskExecutor:
             # Extract method signatures
             methods = self._extract_node_methods(node_class)
             
+            # Extract TypedDict classes for this node
+            typeddict_classes = self._extract_node_typeddict_classes(node_class)
+            
             # Create node info
             node_info = {
                 'node_type': node_type,
                 'category': node_category,
                 'description': getattr(node_class, '__doc__', f"{node_type} processing node") or f"{node_type} processing node",
                 'parameters': parameters,
-                'methods': methods
+                'methods': methods,
+                'types': typeddict_classes  # Include TypedDict classes
             }
             nodes.append(node_info)
         
@@ -512,6 +516,80 @@ class TaskExecutor:
             
         return parameters
     
+    def _extract_node_typeddict_classes(self, node_class: type) -> List[Dict[str, Any]]:
+        """
+        Extract TypedDict classes from a node module for TypeScript generation.
+        
+        Args:
+            node_class: Node class to inspect
+            
+        Returns:
+            List of TypedDict class information
+        """
+        import inspect
+        from typing import get_type_hints, Union
+        
+        typeddict_classes = []
+        
+        try:
+            # Get the module where the node class is defined
+            node_module = inspect.getmodule(node_class)
+            if not node_module:
+                return typeddict_classes
+            
+            # Look for TypedDict classes in the module
+            for name, obj in inspect.getmembers(node_module):
+                # Check if it's a TypedDict class
+                if (hasattr(obj, '__annotations__') and 
+                    hasattr(obj, '__total__') and
+                    hasattr(obj, '__doc__') and
+                    name not in ['TypedDict']):  # Exclude the base TypedDict import
+                    
+                    try:
+                        # Get type hints for the TypedDict
+                        annotations = getattr(obj, '__annotations__', {})
+                        
+                        # Extract field information
+                        fields = []
+                        for field_name, field_type in annotations.items():
+                            field_info = {
+                                'name': field_name,
+                                'type': self._get_type_string(field_type),
+                                'required': True  # TypedDict fields are required by default unless Optional
+                            }
+                            
+                            # Check if it's optional (Union with None)
+                            if hasattr(field_type, '__origin__') and hasattr(field_type, '__args__'):
+                                from typing import get_origin, get_args
+                                if get_origin(field_type) is Union:
+                                    args = get_args(field_type)
+                                    if len(args) == 2 and type(None) in args:
+                                        field_info['required'] = False
+                                        # Get the non-None type
+                                        non_none_type = args[0] if args[1] is type(None) else args[1]
+                                        field_info['type'] = self._get_type_string(non_none_type)
+                            
+                            fields.append(field_info)
+                        
+                        typeddict_info = {
+                            'name': name,
+                            'description': getattr(obj, '__doc__', '').strip() or f"{name} interface",
+                            'fields': fields,
+                            'total': getattr(obj, '__total__', True)  # Whether all fields are required
+                        }
+                        
+                        typeddict_classes.append(typeddict_info)
+                        self.logger.debug(f"Extracted TypedDict {name} with {len(fields)} fields for {node_class.__name__}")
+                        
+                    except Exception as e:
+                        self.logger.debug(f"Failed to process TypedDict {name}: {e}")
+                        continue
+                        
+        except Exception as e:
+            self.logger.warning(f"Failed to extract TypedDict classes for {node_class.__name__}: {e}")
+        
+        return typeddict_classes
+
     def _extract_node_methods(self, node_class: type) -> List[Dict[str, Any]]:
         """
         Extract method signatures from a node class.

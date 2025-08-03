@@ -1,6 +1,6 @@
 /**
  * RemoteMedia Processing SDK TypeScript Definitions
- * Generated at: 2025-08-03T01:15:50.253884
+ * Generated at: 2025-08-03T01:32:49.850876
  * Service version: 0.1.0
  */
 

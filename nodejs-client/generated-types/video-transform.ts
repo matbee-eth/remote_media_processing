@@ -1,4 +1,37 @@
 /**
+ * TypeScript interfaces for VideoTransform
+ * Auto-generated from Python TypedDict classes
+ */
+
+/**
+ * Error output structure for VideoBuffer.
+ */
+export interface VideoBufferError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+/**
+ * Error output structure for VideoResizer.
+ */
+export interface VideoResizerError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+/**
+ * Error output structure for VideoTransform.
+ */
+export interface VideoTransformError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+
+/**
  * VideoTransform Interface
  * 
  * Basic video transformation node.
@@ -32,7 +65,7 @@ export interface VideoTransform {
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
   /** Process video data. */
-  process(data: any): any;
+  process(data: any): any | VideoTransformError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

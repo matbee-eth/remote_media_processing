@@ -1,4 +1,39 @@
 /**
+ * TypeScript interfaces for CodeExecutorNode
+ * Auto-generated from Python TypedDict classes
+ */
+
+/**
+ * Error output structure for CodeExecutorNode.
+ */
+export interface CodeExecutorError {
+  error: string;
+  code?: string;
+  input?: any;
+  processed_by: string;
+}
+
+/**
+ * Input data structure for CodeExecutorNode.
+ */
+export interface CodeExecutorInput {
+  code: string;
+  input?: any;
+}
+
+/**
+ * Output data structure for CodeExecutorNode.
+ */
+export interface CodeExecutorOutput {
+  executed_code: string;
+  input: any;
+  result: any;
+  processed_by: string;
+  node_config: Record<string, any>;
+}
+
+
+/**
  * CodeExecutorNode Interface
  * 
  * 
@@ -55,7 +90,7 @@ export interface CodeExecutorNode {
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
   /** Execute Python code from input data. */
-  process(data: any): any;
+  process(data: CodeExecutorInput | null | any): CodeExecutorOutput | CodeExecutorError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

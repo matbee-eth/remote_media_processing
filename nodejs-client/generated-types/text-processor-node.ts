@@ -1,4 +1,39 @@
 /**
+ * TypeScript interfaces for TextProcessorNode
+ * Auto-generated from Python TypedDict classes
+ */
+
+/**
+ * Error output structure for TextProcessorNode.
+ */
+export interface TextProcessorError {
+  error: string;
+  text: string;
+  operations: Array<string>;
+  processed_by: string;
+}
+
+/**
+ * Input data structure for TextProcessorNode.
+ */
+export interface TextProcessorInput {
+  text: string;
+  operations: Array<string>;
+}
+
+/**
+ * Output data structure for TextProcessorNode.
+ */
+export interface TextProcessorOutput {
+  original_text: string;
+  operations: Array<string>;
+  results: Record<string, any>;
+  processed_by: string;
+  node_config: Record<string, any>;
+}
+
+
+/**
  * TextProcessorNode Interface
  * 
  * 
@@ -41,7 +76,7 @@ export interface TextProcessorNode {
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
   /** Perform text processing operations on input data. */
-  process(data: any): any;
+  process(data: TextProcessorInput | any): TextProcessorOutput | TextProcessorError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

@@ -188,11 +188,28 @@ export type SerializationFormat = 'json' | 'pickle';
     const nodeTypeEnum = this.generateNodeTypeEnum(nodesByCategory);
     await fs.writeFile(path.join(OUTPUT_DIR, 'node-types.ts'), nodeTypeEnum);
 
+    // Generate TypedDict interfaces for each node (before node interfaces so they can import them)
+    for (const node of nodes) {
+      if (node.types && node.types.length > 0) {
+        const typedDictInterfaces = this.generateTypedDictInterfaces(node);
+        const filename = `${this.kebabCase(node.node_type)}.ts`;
+        await fs.writeFile(path.join(OUTPUT_DIR, filename), typedDictInterfaces);
+      }
+    }
+
     // Generate unified interfaces for each node
     for (const node of nodes) {
       const nodeInterface = this.generateNodeConfigInterface(node);
       const filename = `${this.kebabCase(node.node_type)}.ts`;
-      await fs.writeFile(path.join(OUTPUT_DIR, filename), nodeInterface);
+
+      // If there are TypedDict types, append to the existing file, otherwise create new
+      if (node.types && node.types.length > 0) {
+        const existingContent = await fs.readFile(path.join(OUTPUT_DIR, filename), 'utf-8');
+        const combinedContent = existingContent + '\n' + nodeInterface;
+        await fs.writeFile(path.join(OUTPUT_DIR, filename), combinedContent);
+      } else {
+        await fs.writeFile(path.join(OUTPUT_DIR, filename), nodeInterface);
+      }
     }
 
     // Generate unified config types
@@ -231,14 +248,18 @@ export enum NodeType {
   }
 
   generateNodeConfigInterface(node) {
-    const { node_type, description, parameters = [], methods = [] } = node;
+    const { node_type, description, parameters = [], methods = [], types = [] } = node;
 
     let content = `/**
  * ${node_type} Interface
  * 
  * ${description || `${node_type} node interface`}
  */
-export interface ${node_type} {
+`;
+
+    // Note: TypedDict types are defined in the same file, so no imports needed
+
+    content += `export interface ${node_type} {
 `;
 
     // Add constructor parameters as optional properties (for configuration)
@@ -299,6 +320,46 @@ export interface ${node_type} {
     }
 
     content += '}\n';
+    return content;
+  }
+
+  generateTypedDictInterfaces(node) {
+    const { node_type, types = [] } = node;
+
+    let content = `/**
+ * TypeScript interfaces for ${node_type}
+ * Auto-generated from Python TypedDict classes
+ */
+
+`;
+
+    types.forEach(typedDict => {
+      const { name, description, fields = [] } = typedDict;
+
+      // Generate interface
+      content += `/**
+ * ${description}
+ */
+export interface ${name} {
+`;
+
+      if (fields.length === 0) {
+        content += '  // No fields defined\n';
+      } else {
+        fields.forEach(field => {
+          const { name: fieldName, type, required = true } = field;
+          const tsType = this.pythonToTypeScriptType(type);
+          const optional = required ? '' : '?';
+
+          content += `  ${fieldName}${optional}: ${tsType};\n`;
+        });
+      }
+
+      content += '}\n\n';
+    });
+
+    // Interfaces are already exported with 'export interface', no need for additional exports
+
     return content;
   }
 

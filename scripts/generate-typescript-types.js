@@ -194,6 +194,15 @@ export type SerializationFormat = 'json' | 'pickle';
       await fs.writeFile(path.join(OUTPUT_DIR, filename), configInterface);
     }
 
+    // Generate TypedDict interfaces for each node
+    for (const node of nodes) {
+      if (node.types && node.types.length > 0) {
+        const typedDictInterfaces = this.generateTypedDictInterfaces(node);
+        const filename = `${this.kebabCase(node.node_type)}.ts`;
+        await fs.writeFile(path.join(OUTPUT_DIR, filename), typedDictInterfaces);
+      }
+    }
+
     // Generate unified config types
     const configTypes = this.generateConfigTypes(nodes);
     await fs.writeFile(path.join(OUTPUT_DIR, 'config-types.ts'), configTypes);
@@ -261,6 +270,46 @@ export interface ${node_type}Config {
     }
 
     content += '}\n';
+    return content;
+  }
+
+  generateTypedDictInterfaces(node) {
+    const { node_type, types = [] } = node;
+
+    let content = `/**
+ * TypeScript interfaces for ${node_type}
+ * Auto-generated from Python TypedDict classes
+ */
+
+`;
+
+    types.forEach(typedDict => {
+      const { name, description, fields = [] } = typedDict;
+
+      // Generate interface
+      content += `/**
+ * ${description}
+ */
+export interface ${name} {
+`;
+
+      if (fields.length === 0) {
+        content += '  // No fields defined\n';
+      } else {
+        fields.forEach(field => {
+          const { name: fieldName, type, required = true } = field;
+          const tsType = this.pythonToTypeScriptType(type);
+          const optional = required ? '' : '?';
+
+          content += `  ${fieldName}${optional}: ${tsType};\n`;
+        });
+      }
+
+      content += '}\n\n';
+    });
+
+    // Interfaces are already exported with 'export interface', no need for additional exports
+
     return content;
   }
 
@@ -357,6 +406,11 @@ export * from './config-types';
     nodes.forEach(node => {
       const filename = this.kebabCase(node.node_type);
       content += `export * from './${filename}-config';\n`;
+
+      // Export TypedDict interfaces if they exist
+      if (node.types && node.types.length > 0) {
+        content += `export * from './${filename}';\n`;
+      }
     });
 
     content += `
@@ -371,19 +425,45 @@ export * from './client';
   pythonToTypeScriptType(pythonType) {
     const typeMap = {
       'str': 'string',
+      'string': 'string',
       'int': 'number',
+      'number': 'number',
       'float': 'number',
       'bool': 'boolean',
+      'boolean': 'boolean',
+      'null': 'null',
       'list': 'any[]',
       'List': 'any[]',
+      'Array<any>': 'any[]',
       'dict': 'Record<string, any>',
       'Dict': 'Record<string, any>',
+      'Record<string, any>': 'Record<string, any>',
       'Any': 'any',
+      'any': 'any',
       'Optional': 'any',
       'Union': 'any'
     };
 
-    return typeMap[pythonType] || 'any';
+    // Handle array types
+    if (pythonType.includes('Array<')) {
+      return pythonType;
+    }
+
+    // Handle union types (e.g., "string | null")
+    if (pythonType.includes(' | ')) {
+      return pythonType;
+    }
+
+    // Handle TypedDict references
+    if (pythonType.includes('TypedDict<')) {
+      // Extract the TypedDict name
+      const match = pythonType.match(/TypedDict<(.+)>/);
+      if (match) {
+        return match[1]; // Return just the type name
+      }
+    }
+
+    return typeMap[pythonType] || pythonType || 'any';
   }
 
   kebabCase(str) {

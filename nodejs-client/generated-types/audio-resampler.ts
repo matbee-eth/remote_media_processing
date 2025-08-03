@@ -1,4 +1,80 @@
 /**
+ * TypeScript interfaces for AudioResampler
+ * Auto-generated from Python TypedDict classes
+ */
+
+/**
+ * Error output structure for AudioResampler.
+ */
+export interface AudioResamplerError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+/**
+ * Input data structure for AudioResampler.
+ */
+export interface AudioResamplerInput {
+  audio_data: any;
+  sample_rate: number;
+}
+
+/**
+ * Output data structure for AudioResampler.
+ */
+export interface AudioResamplerOutput {
+  audio_data: any;
+  sample_rate: number;
+  processed_by: string;
+}
+
+/**
+ * Error output structure for AudioTransform.
+ */
+export interface AudioTransformError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+/**
+ * Input data structure for AudioTransform.
+ */
+export interface AudioTransformInput {
+  audio_data: any;
+  sample_rate: number;
+}
+
+/**
+ * Output data structure for AudioTransform.
+ */
+export interface AudioTransformOutput {
+  audio_data: any;
+  sample_rate: number;
+  processed_by: string;
+  node_config: Record<string, any>;
+}
+
+/**
+ * Error output structure for ExtractAudioDataNode.
+ */
+export interface ExtractAudioDataError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+/**
+ * Input data structure for ExtractAudioDataNode.
+ */
+export interface ExtractAudioDataInput {
+  audio_data: any;
+  sample_rate: number;
+}
+
+
+/**
  * AudioResampler Interface
  * 
  * Audio resampling node.
@@ -32,7 +108,7 @@ export interface AudioResampler {
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
   /** Resample audio data. */
-  process(data: any): any;
+  process(data: [any, number] | any): [any, number] | AudioResamplerError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

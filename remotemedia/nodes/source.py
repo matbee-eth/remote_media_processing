@@ -7,7 +7,7 @@ for example by reading from a file, network stream, or hardware device.
 import asyncio
 import logging
 import os
-from typing import AsyncGenerator, Any
+from typing import AsyncGenerator, Any, Union, TypedDict, Optional, Tuple
 
 import numpy as np
 from av import AudioFrame, VideoFrame
@@ -17,6 +17,18 @@ from ..core.node import Node
 from ..core.exceptions import NodeError
 
 logger = logging.getLogger(__name__)
+
+
+# Type definitions for TrackSource nodes
+TrackSourceInput = Any
+TrackSourceOutput = Optional[Any]
+
+
+class TrackSourceError(TypedDict):
+    """Error output structure for TrackSource."""
+    error: str
+    input: Any
+    processed_by: str
 
 class MediaReaderNode(Node):
     """
@@ -38,7 +50,7 @@ class MediaReaderNode(Node):
         super().__init__(**kwargs)
         self.path = path
 
-    def process(self, data=None):
+    def process(self, data: Optional[Any] = None) -> AsyncGenerator[Any, None]:
         """
         Ignores any input data and returns an async generator of media frames.
         """
@@ -105,26 +117,34 @@ class TrackSource(Node):
     _track_type: str = ""
     _frame_type: type = Frame
 
-    def process(self, data: Any) -> Any:
+    def process(self, data: Any) -> Union[Any, None, TrackSourceError]:
         """
         Processes input data, expecting a dictionary like `{'audio': frame}`.
         It extracts the frame for the specific track type and processes it.
         """
-        if not isinstance(data, dict) or self._track_type not in data:
-            # Not the data this track is looking for, ignore silently.
-            return None
+        try:
+            if not isinstance(data, dict) or self._track_type not in data:
+                # Not the data this track is looking for, ignore silently.
+                return None
 
-        frame = data[self._track_type]
+            frame = data[self._track_type]
 
-        if not isinstance(frame, self._frame_type):
-            logger.warning(
-                f"{self.__class__.__name__} '{self.name}': received data for track "
-                f"'{self._track_type}' with unexpected frame type {type(frame)}."
-            )
-            return None
-        
-        logger.debug(f"{self.__class__.__name__}: Processing frame.")
-        return self._process_frame(frame)
+            if not isinstance(frame, self._frame_type):
+                logger.warning(
+                    f"{self.__class__.__name__} '{self.name}': received data for track "
+                    f"'{self._track_type}' with unexpected frame type {type(frame)}."
+                )
+                return None
+            
+            logger.debug(f"{self.__class__.__name__}: Processing frame.")
+            return self._process_frame(frame)
+        except Exception as e:
+            logger.error(f"{self.__class__.__name__} '{self.name}': processing failed: {e}")
+            return {
+                "error": str(e),
+                "input": data,
+                "processed_by": f"{self.__class__.__name__}[{self.name}]"
+            }
 
     def _process_frame(self, frame: Frame) -> Any:
         raise NotImplementedError
@@ -262,7 +282,7 @@ class LocalMediaReaderNode(Node):
             self._produce_frames_blocking
         )
 
-    async def process(self, data: Any = None) -> AsyncGenerator[Any, None]:
+    async def process(self, data: Optional[Any] = None) -> AsyncGenerator[Any, None]:
         """Yields frames from the internal queue."""
         if not self._producer_task:
             raise RuntimeError("Producer task was not started. Call initialize() first.")

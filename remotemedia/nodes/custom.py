@@ -6,6 +6,7 @@ to verify the remote execution of custom, user-defined, cloudpickle-serialized o
 """
 
 from remotemedia.core.node import Node
+from typing import AsyncGenerator, Any, Tuple
 import asyncio
 
 class StatefulCounter(Node):
@@ -26,7 +27,7 @@ class StatefulCounter(Node):
         await super().cleanup()
         pass
 
-    async def process(self, data_stream):
+    async def process(self, data_stream: AsyncGenerator[Any, None]) -> AsyncGenerator[Tuple[int], None]:
         """
         Increments the internal value for each item in the stream.
         Ignores the actual data and just counts.

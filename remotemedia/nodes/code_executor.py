@@ -5,12 +5,36 @@ WARNING: This node executes arbitrary Python code and is INSECURE!
 Only use in trusted environments with proper sandboxing.
 """
 
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Union, TypedDict
 import logging
 
 from ..core.node import Node
 
 logger = logging.getLogger(__name__)
+
+
+# Type definitions for CodeExecutorNode
+class CodeExecutorInput(TypedDict):
+    """Input data structure for CodeExecutorNode."""
+    code: str
+    input: Optional[Any]
+
+
+class CodeExecutorOutput(TypedDict):
+    """Output data structure for CodeExecutorNode."""
+    executed_code: str
+    input: Any
+    result: Any
+    processed_by: str
+    node_config: Dict[str, Any]
+
+
+class CodeExecutorError(TypedDict):
+    """Error output structure for CodeExecutorNode."""
+    error: str
+    code: Optional[str]
+    input: Optional[Any]
+    processed_by: str
 
 
 class CodeExecutorNode(Node):
@@ -56,7 +80,7 @@ class CodeExecutorNode(Node):
         self.enable_cloudpickle = enable_cloudpickle
         self.allowed_modules = allowed_modules or []
     
-    def process(self, data: Any) -> Any:
+    def process(self, data: Union[CodeExecutorInput, None, Any]) -> Union[CodeExecutorOutput, CodeExecutorError]:
         """
         Execute Python code from input data.
         

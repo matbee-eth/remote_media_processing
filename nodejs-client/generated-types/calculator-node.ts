@@ -1,4 +1,39 @@
 /**
+ * TypeScript interfaces for CalculatorNode
+ * Auto-generated from Python TypedDict classes
+ */
+
+/**
+ * Error output structure for CalculatorNode.
+ */
+export interface CalculatorError {
+  error: string;
+  operation: "add" | "multiply" | "subtract" | "divide" | "power" | "modulo" | string | null;
+  args: any | any | any | null;
+  processed_by: string;
+}
+
+/**
+ * Input data structure for CalculatorNode.
+ */
+export interface CalculatorInput {
+  operation: "add" | "multiply" | "subtract" | "divide" | "power" | "modulo";
+  args: any | any;
+}
+
+/**
+ * Output data structure for CalculatorNode.
+ */
+export interface CalculatorOutput {
+  operation: "add" | "multiply" | "subtract" | "divide" | "power" | "modulo";
+  args: any | any;
+  result: number | number;
+  processed_by: string;
+  node_config: Record<string, any>;
+}
+
+
+/**
  * CalculatorNode Interface
  * 
  * 

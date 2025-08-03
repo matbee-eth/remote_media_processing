@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Union, TypedDict, Optional
 
 import av
 from av.frame import Frame
@@ -9,6 +9,20 @@ from ..core.node import Node
 from ..core.exceptions import NodeError
 
 logger = logging.getLogger(__name__)
+
+
+# Type definitions for MediaWriterNode
+class MediaWriterInput(TypedDict):
+    """Input data structure for MediaWriterNode."""
+    audio: Optional[Frame]
+    video: Optional[Frame]
+
+
+class MediaWriterError(TypedDict):
+    """Error output structure for MediaWriterNode."""
+    error: str
+    input: Any
+    processed_by: str
 
 class MediaWriterNode(Node):
     """
@@ -41,24 +55,38 @@ class MediaWriterNode(Node):
         except Exception as e:
             raise NodeError(f"Failed to open output file {self.output_path}: {e}") from e
 
-    async def process(self, data: Any):
+    async def process(self, data: Union[Dict[str, Frame], Any]) -> Optional[MediaWriterError]:
         """
         Processes a frame and writes it to the output file.
         Expects data to be a dictionary containing an 'audio' or 'video' key
         with an av.frame.Frame object as the value.
         """
-        if not isinstance(data, dict):
-            logger.warning(f"'{self.name}' received data in unexpected format. Expected dict.")
-            return
+        try:
+            if not isinstance(data, dict):
+                logger.warning(f"'{self.name}' received data in unexpected format. Expected dict.")
+                return {
+                    "error": "Input must be a dictionary with 'audio' or 'video' keys",
+                    "input": data,
+                    "processed_by": f"MediaWriterNode[{self.name}]"
+                }
 
-        for track_type, frame in data.items():
-            if not isinstance(frame, Frame):
-                continue
+            for track_type, frame in data.items():
+                if not isinstance(frame, Frame):
+                    continue
 
-            if track_type not in self.streams:
-                await asyncio.to_thread(self._add_stream, track_type, frame)
+                if track_type not in self.streams:
+                    await asyncio.to_thread(self._add_stream, track_type, frame)
 
-            await self._write_frame(frame, track_type)
+                await self._write_frame(frame, track_type)
+            
+            return None  # Success
+        except Exception as e:
+            logger.error(f"MediaWriterNode '{self.name}': error processing frame: {e}")
+            return {
+                "error": str(e),
+                "input": data,
+                "processed_by": f"MediaWriterNode[{self.name}]"
+            }
 
     def _add_stream(self, track_type: str, frame: Frame):
         """Adds a new stream to the container based on the first frame."""

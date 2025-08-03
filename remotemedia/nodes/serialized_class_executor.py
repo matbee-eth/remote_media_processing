@@ -5,7 +5,7 @@ This node handles the execution of user-defined Python classes that have been
 serialized using cloudpickle, as specified in the development strategy document.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Union, TypedDict, List, Optional, Tuple
 import logging
 import base64
 import cloudpickle
@@ -13,6 +13,30 @@ import cloudpickle
 from ..core.node import Node
 
 logger = logging.getLogger(__name__)
+
+
+# Type definitions for SerializedClassExecutorNode
+class SerializedClassExecutorInput(TypedDict):
+    """Input data structure for SerializedClassExecutorNode."""
+    serialized_object: str
+    method_name: str
+    method_args: Optional[List[Any]]
+    method_kwargs: Optional[Dict[str, Any]]
+
+
+class SerializedClassExecutorOutput(TypedDict):
+    """Output data structure for SerializedClassExecutorNode."""
+    result: Any
+    updated_serialized_object: str
+    processed_by: str
+
+
+class SerializedClassExecutorError(TypedDict):
+    """Error output structure for SerializedClassExecutorNode."""
+    error: str
+    error_type: str
+    method_name: Optional[str]
+    processed_by: str
 
 
 class SerializedClassExecutorNode(Node):
@@ -31,7 +55,7 @@ class SerializedClassExecutorNode(Node):
     }
     """
     
-    def process(self, data: Any) -> Any:
+    def process(self, data: Union[SerializedClassExecutorInput, Any]) -> Union[SerializedClassExecutorOutput, SerializedClassExecutorError]:
         """
         Execute a method on a cloudpickle-serialized Python object.
         
@@ -113,7 +137,7 @@ class SerializedClassExecutorNode(Node):
             }
     
     def _execute_serialized_method(self, serialized_object: str, method_name: str, 
-                                 method_args: list, method_kwargs: dict, pickle_lib: Any) -> (Any, Any):
+                                 method_args: list, method_kwargs: dict, pickle_lib: Any) -> Tuple[Any, Any]:
         """
         Deserialize object, execute method, and return result and modified object.
         

@@ -1,4 +1,37 @@
 /**
+ * TypeScript interfaces for BufferNode
+ * Auto-generated from Python TypedDict classes
+ */
+
+/**
+ * Error output structure for BufferNode.
+ */
+export interface BufferError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+/**
+ * Output data structure for BufferNode.
+ */
+export interface BufferOutput {
+  buffer: Array<any>;
+  count: number;
+  processed_by: string;
+}
+
+/**
+ * Error output structure for PassThroughNode.
+ */
+export interface PassThroughError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+
+/**
  * BufferNode Interface
  * 
  * A node that buffers data for batch processing.
@@ -35,7 +68,7 @@ export interface BufferNode {
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
   /** Buffer data and return when buffer is full. */
-  process(data: any): any;
+  process(data: any): Array<any> | null | BufferError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

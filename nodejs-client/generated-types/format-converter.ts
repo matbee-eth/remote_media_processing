@@ -1,4 +1,37 @@
 /**
+ * TypeScript interfaces for FormatConverter
+ * Auto-generated from Python TypedDict classes
+ */
+
+/**
+ * Error output structure for DataTransform.
+ */
+export interface DataTransformError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+/**
+ * Error output structure for FormatConverter.
+ */
+export interface FormatConverterError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+/**
+ * Error output structure for TextTransformNode.
+ */
+export interface TextTransformError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+
+/**
  * FormatConverter Interface
  * 
  * Format conversion node.
@@ -32,7 +65,7 @@ export interface FormatConverter {
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
   /** Convert data format. */
-  process(data: any): any;
+  process(data: any): any | FormatConverterError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

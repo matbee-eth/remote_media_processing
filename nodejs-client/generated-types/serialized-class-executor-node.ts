@@ -1,4 +1,39 @@
 /**
+ * TypeScript interfaces for SerializedClassExecutorNode
+ * Auto-generated from Python TypedDict classes
+ */
+
+/**
+ * Error output structure for SerializedClassExecutorNode.
+ */
+export interface SerializedClassExecutorError {
+  error: string;
+  error_type: string;
+  method_name?: string;
+  processed_by: string;
+}
+
+/**
+ * Input data structure for SerializedClassExecutorNode.
+ */
+export interface SerializedClassExecutorInput {
+  serialized_object: string;
+  method_name: string;
+  method_args?: Array<any>;
+  method_kwargs?: Record<string, any>;
+}
+
+/**
+ * Output data structure for SerializedClassExecutorNode.
+ */
+export interface SerializedClassExecutorOutput {
+  result: any;
+  updated_serialized_object: string;
+  processed_by: string;
+}
+
+
+/**
  * SerializedClassExecutorNode Interface
  * 
  * 
@@ -46,7 +81,7 @@ export interface SerializedClassExecutorNode {
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
   /** Execute a method on a cloudpickle-serialized Python object. */
-  process(data: any): any;
+  process(data: SerializedClassExecutorInput | any): SerializedClassExecutorOutput | SerializedClassExecutorError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */

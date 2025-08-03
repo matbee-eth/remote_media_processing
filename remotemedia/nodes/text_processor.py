@@ -2,12 +2,36 @@
 Text Processor node for text manipulation operations.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Union, TypedDict, List
 import logging
 
 from ..core.node import Node
 
 logger = logging.getLogger(__name__)
+
+
+# Type definitions for TextProcessorNode
+class TextProcessorInput(TypedDict):
+    """Input data structure for TextProcessorNode."""
+    text: str
+    operations: List[str]
+
+
+class TextProcessorOutput(TypedDict):
+    """Output data structure for TextProcessorNode."""
+    original_text: str
+    operations: List[str]
+    results: Dict[str, Any]
+    processed_by: str
+    node_config: Dict[str, Any]
+
+
+class TextProcessorError(TypedDict):
+    """Error output structure for TextProcessorNode."""
+    error: str
+    text: str
+    operations: List[str]
+    processed_by: str
 
 
 class TextProcessorNode(Node):
@@ -21,7 +45,7 @@ class TextProcessorNode(Node):
     }
     """
     
-    def process(self, data: Any) -> Any:
+    def process(self, data: Union[TextProcessorInput, Any]) -> Union[TextProcessorOutput, TextProcessorError]:
         """
         Perform text processing operations on input data.
         

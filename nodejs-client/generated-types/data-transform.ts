@@ -1,4 +1,37 @@
 /**
+ * TypeScript interfaces for DataTransform
+ * Auto-generated from Python TypedDict classes
+ */
+
+/**
+ * Error output structure for DataTransform.
+ */
+export interface DataTransformError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+/**
+ * Error output structure for FormatConverter.
+ */
+export interface FormatConverterError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+/**
+ * Error output structure for TextTransformNode.
+ */
+export interface TextTransformError {
+  error: string;
+  input: any;
+  processed_by: string;
+}
+
+
+/**
  * DataTransform Interface
  * 
  * Generic data transformation node.
@@ -31,7 +64,7 @@ export interface DataTransform {
   /** Merge processed data with metadata. */
   merge_data_metadata(data: any, metadata: Record<string, any> | null): any;
   /** Transform data. */
-  process(data: any): any;
+  process(data: any): any | DataTransformError;
   /** Set the current session ID for state management. */
   set_session_id(session_id: string): null;
   /** Split data into content and metadata components. */
