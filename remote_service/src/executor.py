@@ -52,6 +52,7 @@ class ExecutionResult:
     memory_peak: int
     cpu_time: int
     installed_dependencies: List[str] = None
+    raw_output: Any = None  # Store raw output for generator handling
 
 
 class TaskExecutor:
@@ -256,13 +257,26 @@ class TaskExecutor:
                 self.logger.error(f"Failed to process data with {node_type}: {process_error}")
                 raise RuntimeError(f"Node processing failed: {process_error}") from process_error
             
-            # Serialize output
-            try:
-                output_data = serializer.serialize(output_obj)
+            # Check if output is a generator
+            if inspect.isgenerator(output_obj) or inspect.isasyncgen(output_obj):
+                # Return generator marker instead of materializing
+                generator_marker = {
+                    "__generator__": True,
+                    "generator_id": f"node_gen_{node_type}_{id(output_obj)}",
+                    "is_async": inspect.isasyncgen(output_obj),
+                    "node_type": node_type
+                }
+                output_data = serializer.serialize(generator_marker)
                 output_size = len(output_data)
-            except Exception as serialize_error:
-                self.logger.error(f"Failed to serialize output from {node_type}: {serialize_error}")
-                raise RuntimeError(f"Output serialization failed: {serialize_error}") from serialize_error
+                self.logger.info(f"Node {node_type} returned a generator, returning marker")
+            else:
+                # Serialize output normally
+                try:
+                    output_data = serializer.serialize(output_obj)
+                    output_size = len(output_data)
+                except Exception as serialize_error:
+                    self.logger.error(f"Failed to serialize output from {node_type}: {serialize_error}")
+                    raise RuntimeError(f"Output serialization failed: {serialize_error}") from serialize_error
             
             # Clean up node (if method exists)
             if hasattr(node, 'cleanup'):
@@ -281,7 +295,8 @@ class TaskExecutor:
                 input_size=input_size,
                 output_size=output_size,
                 memory_peak=0,  # TODO: Implement memory tracking
-                cpu_time=execution_time
+                cpu_time=execution_time,
+                raw_output=output_obj if (inspect.isgenerator(output_obj) or inspect.isasyncgen(output_obj)) else None
             )
             
         except Exception as e:

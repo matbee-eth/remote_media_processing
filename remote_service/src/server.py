@@ -589,6 +589,21 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                 options=request.options
             )
             
+            # Check if result contains a generator
+            if result.raw_output is not None and (inspect.isgenerator(result.raw_output) or inspect.isasyncgen(result.raw_output)):
+                # Parse the generator marker from output_data
+                serializer = PickleSerializer() if request.serialization_format == 'pickle' else JSONSerializer()
+                marker = serializer.deserialize(result.output_data)
+                
+                if marker.get("__generator__"):
+                    # Store the generator session
+                    generator_id = marker["generator_id"]
+                    self.generator_sessions[generator_id] = GeneratorSession(
+                        generator=result.raw_output,
+                        session_id=generator_id
+                    )
+                    self.logger.info(f"Stored generator session {generator_id} for node {request.node_type}")
+            
             self.success_count += 1
             
             # Build response

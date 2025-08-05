@@ -9,6 +9,15 @@
 // Export main client
 export { RemoteProxyClient } from './client';
 
+// Export enhanced streaming client
+export { 
+  RemoteProxyClient as RemoteProxyClientStreaming,
+  RemoteAsyncGenerator,
+  RemoteReadableStream,
+  RemoteWritableStream,
+  RemoteExecutorConfig 
+} from './remote-proxy-client-streaming';
+
 // Export helper functions and classes
 export {
   withRemoteProxy,

@@ -20,7 +20,14 @@
     "proxy:simple": "ts-node examples/proxy/simple-proxy-example.ts",
     "proxy:calculator": "ts-node examples/proxy/calculator-proxy.ts",
     "proxy:nodes": "ts-node examples/proxy/node-execution-example.ts",
-    "proxy:demo": "ts-node examples/proxy/comprehensive-demo.ts"
+    "proxy:demo": "ts-node examples/proxy/comprehensive-demo.ts",
+    "test:streaming": "ts-node test-streaming.ts",
+    "test:streaming:integration": "ts-node test-streaming-integration.ts",
+    "test:streaming:nodes": "ts-node test-streaming-with-nodes.ts",
+    "test:executenode:generators": "ts-node test-executenode-generators.ts",
+    "demo:streaming": "ts-node examples/streaming-generators-demo.ts",
+    "demo:generated": "ts-node examples/generated-types-streaming-demo.ts",
+    "generate:types": "node ../../scripts/generate-typescript-types-enhanced.js"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.9.0",
