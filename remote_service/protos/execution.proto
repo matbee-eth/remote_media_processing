@@ -35,6 +35,14 @@ service RemoteExecutionService {
   
   // Export TypeScript interface definitions
   rpc ExportTypeScriptDefinitions(ExportTypeScriptRequest) returns (ExportTypeScriptResponse);
+  
+  // Pipeline management services
+  rpc RegisterPipeline(RegisterPipelineRequest) returns (RegisterPipelineResponse);
+  rpc UnregisterPipeline(UnregisterPipelineRequest) returns (UnregisterPipelineResponse);
+  rpc ListPipelines(ListPipelinesRequest) returns (ListPipelinesResponse);
+  rpc GetPipelineInfo(GetPipelineInfoRequest) returns (GetPipelineInfoResponse);
+  rpc ExecutePipeline(ExecutePipelineRequest) returns (ExecutePipelineResponse);
+  rpc StreamPipeline(stream StreamPipelineRequest) returns (stream StreamPipelineResponse);
 }
 
 // Execute SDK Node Request
@@ -251,4 +259,168 @@ message ExportTypeScriptResponse {
   string typescript_definitions = 2; // Generated TypeScript interface definitions
   string error_message = 3;
   string version = 4;               // Service version used for generation
+}
+
+// Pipeline management messages
+
+// Pipeline definition structure
+message PipelineDefinition {
+  string name = 1;
+  repeated NodeDefinition nodes = 2;
+  repeated PipelineConnection connections = 3;
+  map<string, string> config = 4;
+  map<string, string> metadata = 5;
+}
+
+// Node definition within a pipeline
+message NodeDefinition {
+  string node_id = 1;
+  string node_type = 2;
+  map<string, string> config = 3;
+  bool is_remote = 4;
+  string remote_endpoint = 5;
+  bool is_streaming = 6;
+  bool is_source = 7;
+  bool is_sink = 8;
+}
+
+// Connection between nodes
+message PipelineConnection {
+  string from_node = 1;
+  string to_node = 2;
+  string output_port = 3;
+  string input_port = 4;
+}
+
+// Register a pipeline
+message RegisterPipelineRequest {
+  string pipeline_name = 1;
+  PipelineDefinition definition = 2;
+  map<string, string> metadata = 3;
+  repeated string dependencies = 4;
+  bool auto_export = 5;  // Automatically export to TypeScript
+}
+
+message RegisterPipelineResponse {
+  ExecutionStatus status = 1;
+  string pipeline_id = 2;
+  string error_message = 3;
+  int64 registered_timestamp = 4;
+}
+
+// Unregister a pipeline
+message UnregisterPipelineRequest {
+  string pipeline_id = 1;
+}
+
+message UnregisterPipelineResponse {
+  ExecutionStatus status = 1;
+  string error_message = 2;
+}
+
+// List registered pipelines
+message ListPipelinesRequest {
+  string category = 1;  // Filter by category
+  bool include_definitions = 2;
+}
+
+message ListPipelinesResponse {
+  repeated PipelineInfo pipelines = 1;
+}
+
+message PipelineInfo {
+  string pipeline_id = 1;
+  string name = 2;
+  string category = 3;
+  string description = 4;
+  int64 registered_timestamp = 5;
+  int32 usage_count = 6;
+  PipelineDefinition definition = 7;  // Only included if requested
+  map<string, string> metadata = 8;
+}
+
+// Get detailed pipeline information
+message GetPipelineInfoRequest {
+  string pipeline_id = 1;
+  bool include_definition = 2;
+  bool include_metrics = 3;
+}
+
+message GetPipelineInfoResponse {
+  ExecutionStatus status = 1;
+  PipelineInfo pipeline_info = 2;
+  PipelineMetrics metrics = 3;
+  string error_message = 4;
+}
+
+message PipelineMetrics {
+  int64 total_executions = 1;
+  int64 total_errors = 2;
+  double average_execution_time_ms = 3;
+  int64 last_execution_timestamp = 4;
+}
+
+// Execute a pipeline
+message ExecutePipelineRequest {
+  string pipeline_id = 1;
+  bytes input_data = 2;
+  string serialization_format = 3;
+  ExecutionOptions options = 4;
+  map<string, string> runtime_config = 5;  // Override node configs at runtime
+}
+
+message ExecutePipelineResponse {
+  ExecutionStatus status = 1;
+  bytes output_data = 2;
+  string error_message = 3;
+  string error_traceback = 4;
+  ExecutionMetrics metrics = 5;
+  string execution_id = 6;
+}
+
+// Stream data through a pipeline
+message StreamPipelineRequest {
+  oneof payload {
+    StreamPipelineInit init = 1;
+    bytes data = 2;
+    StreamControl control = 3;
+  }
+}
+
+message StreamPipelineResponse {
+  oneof payload {
+    StreamPipelineAck ack = 1;
+    bytes data = 2;
+    string error = 3;
+    StreamPipelineStatus status = 4;
+  }
+}
+
+message StreamPipelineInit {
+  string pipeline_id = 1;
+  string serialization_format = 2;
+  map<string, string> runtime_config = 3;
+  bool bidirectional = 4;  // Support bidirectional streaming
+}
+
+message StreamPipelineAck {
+  string session_id = 1;
+  bool ready = 2;
+}
+
+message StreamControl {
+  enum ControlType {
+    PAUSE = 0;
+    RESUME = 1;
+    FLUSH = 2;
+    CLOSE = 3;
+  }
+  ControlType type = 1;
+}
+
+message StreamPipelineStatus {
+  string session_id = 1;
+  int64 items_processed = 2;
+  int64 bytes_processed = 3;
+  bool is_active = 4;
 } 

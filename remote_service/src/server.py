@@ -319,6 +319,15 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         # Start periodic cleanup task
         asyncio.create_task(self._periodic_cleanup())
     
+    def _get_serializer(self, serialization_format: str):
+        """Get the appropriate serializer based on format."""
+        if serialization_format == 'pickle':
+            return PickleSerializer()
+        elif serialization_format == 'json':
+            return JSONSerializer()
+        else:
+            raise ValueError(f"Unsupported serialization format: {serialization_format}")
+    
     def _get_peer_info(self, context: grpc.aio.ServicerContext) -> str:
         """Get a unique identifier for the peer connection."""
         peer = context.peer() if hasattr(context, 'peer') else 'unknown'
@@ -1524,6 +1533,370 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
             return execution_pb2.CloseGeneratorResponse(
                 status=error_details["status"]
             )
+    
+    # Pipeline management methods
+    
+    async def RegisterPipeline(
+        self,
+        request: execution_pb2.RegisterPipelineRequest,
+        context: grpc.aio.ServicerContext
+    ) -> execution_pb2.RegisterPipelineResponse:
+        """Register a new pipeline for remote execution."""
+        try:
+            from remotemedia.core.pipeline_registry import get_global_registry
+            
+            registry = get_global_registry()
+            
+            # Convert proto definition to dict
+            definition = {
+                "name": request.definition.name,
+                "nodes": [
+                    {
+                        "node_id": node.node_id,
+                        "node_type": node.node_type,
+                        "config": dict(node.config),
+                        "is_remote": node.is_remote,
+                        "remote_endpoint": node.remote_endpoint,
+                        "is_streaming": node.is_streaming,
+                        "is_source": node.is_source,
+                        "is_sink": node.is_sink
+                    }
+                    for node in request.definition.nodes
+                ],
+                "connections": [
+                    {
+                        "from_node": conn.from_node,
+                        "to_node": conn.to_node,
+                        "output_port": conn.output_port,
+                        "input_port": conn.input_port
+                    }
+                    for conn in request.definition.connections
+                ],
+                "config": dict(request.definition.config),
+                "metadata": dict(request.definition.metadata)
+            }
+            
+            # Register the pipeline
+            pipeline_id = await registry.register_pipeline(
+                name=request.pipeline_name,
+                definition=definition,
+                metadata=dict(request.metadata),
+                dependencies=list(request.dependencies),
+                category=request.metadata.get("category", "general"),
+                description=request.metadata.get("description", "")
+            )
+            
+            self.logger.info(f"Registered pipeline '{request.pipeline_name}' with ID: {pipeline_id}")
+            
+            return execution_pb2.RegisterPipelineResponse(
+                status=types_pb2.EXECUTION_STATUS_SUCCESS,
+                pipeline_id=pipeline_id,
+                registered_timestamp=int(time.time())
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Failed to register pipeline: {e}")
+            return execution_pb2.RegisterPipelineResponse(
+                status=types_pb2.EXECUTION_STATUS_ERROR,
+                error_message=str(e)
+            )
+    
+    async def UnregisterPipeline(
+        self,
+        request: execution_pb2.UnregisterPipelineRequest,
+        context: grpc.aio.ServicerContext
+    ) -> execution_pb2.UnregisterPipelineResponse:
+        """Unregister a pipeline."""
+        try:
+            from remotemedia.core.pipeline_registry import get_global_registry
+            
+            registry = get_global_registry()
+            success = await registry.unregister_pipeline(request.pipeline_id)
+            
+            if success:
+                return execution_pb2.UnregisterPipelineResponse(
+                    status=types_pb2.EXECUTION_STATUS_SUCCESS
+                )
+            else:
+                return execution_pb2.UnregisterPipelineResponse(
+                    status=types_pb2.EXECUTION_STATUS_ERROR,
+                    error_message=f"Pipeline not found: {request.pipeline_id}"
+                )
+                
+        except Exception as e:
+            self.logger.error(f"Failed to unregister pipeline: {e}")
+            return execution_pb2.UnregisterPipelineResponse(
+                status=types_pb2.EXECUTION_STATUS_ERROR,
+                error_message=str(e)
+            )
+    
+    async def ListPipelines(
+        self,
+        request: execution_pb2.ListPipelinesRequest,
+        context: grpc.aio.ServicerContext
+    ) -> execution_pb2.ListPipelinesResponse:
+        """List registered pipelines."""
+        try:
+            from remotemedia.core.pipeline_registry import get_global_registry
+            
+            registry = get_global_registry()
+            pipelines = registry.list_pipelines(
+                category=request.category if request.category else None,
+                include_definitions=request.include_definitions
+            )
+            
+            # Convert to proto format
+            pipeline_infos = []
+            for p in pipelines:
+                info = execution_pb2.PipelineInfo(
+                    pipeline_id=p["pipeline_id"],
+                    name=p["name"],
+                    category=p["category"],
+                    description=p["description"],
+                    registered_timestamp=int(p["registered_timestamp"]),
+                    usage_count=p["usage_count"]
+                )
+                
+                # Add metadata
+                for k, v in p.get("metadata", {}).items():
+                    info.metadata[k] = str(v)
+                
+                # Add definition if requested
+                if request.include_definitions and "definition" in p:
+                    # Convert definition to proto format
+                    definition = p["definition"]
+                    info.definition.name = definition["name"]
+                    
+                    for node in definition.get("nodes", []):
+                        node_def = info.definition.nodes.add()
+                        node_def.node_id = node["node_id"]
+                        node_def.node_type = node["node_type"]
+                        for k, v in node.get("config", {}).items():
+                            node_def.config[k] = str(v)
+                        node_def.is_remote = node.get("is_remote", False)
+                        node_def.remote_endpoint = node.get("remote_endpoint", "")
+                        node_def.is_streaming = node.get("is_streaming", False)
+                        node_def.is_source = node.get("is_source", False)
+                        node_def.is_sink = node.get("is_sink", False)
+                    
+                    for conn in definition.get("connections", []):
+                        conn_def = info.definition.connections.add()
+                        conn_def.from_node = conn["from_node"]
+                        conn_def.to_node = conn["to_node"]
+                        conn_def.output_port = conn.get("output_port", "default")
+                        conn_def.input_port = conn.get("input_port", "default")
+                
+                pipeline_infos.append(info)
+            
+            return execution_pb2.ListPipelinesResponse(pipelines=pipeline_infos)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to list pipelines: {e}")
+            return execution_pb2.ListPipelinesResponse(pipelines=[])
+    
+    async def GetPipelineInfo(
+        self,
+        request: execution_pb2.GetPipelineInfoRequest,
+        context: grpc.aio.ServicerContext
+    ) -> execution_pb2.GetPipelineInfoResponse:
+        """Get detailed pipeline information."""
+        try:
+            from remotemedia.core.pipeline_registry import get_global_registry
+            
+            registry = get_global_registry()
+            info = registry.get_pipeline_info(
+                request.pipeline_id,
+                include_definition=request.include_definition,
+                include_metrics=request.include_metrics
+            )
+            
+            if not info:
+                return execution_pb2.GetPipelineInfoResponse(
+                    status=types_pb2.EXECUTION_STATUS_ERROR,
+                    error_message=f"Pipeline not found: {request.pipeline_id}"
+                )
+            
+            # Convert to proto format
+            pipeline_info = execution_pb2.PipelineInfo(
+                pipeline_id=info["pipeline_id"],
+                name=info["name"],
+                category=info["category"],
+                description=info["description"],
+                registered_timestamp=int(info["registered_timestamp"]),
+                usage_count=info["usage_count"]
+            )
+            
+            # Add metadata
+            for k, v in info.get("metadata", {}).items():
+                pipeline_info.metadata[k] = str(v)
+            
+            response = execution_pb2.GetPipelineInfoResponse(
+                status=types_pb2.EXECUTION_STATUS_SUCCESS,
+                pipeline_info=pipeline_info
+            )
+            
+            # Add metrics if requested
+            if request.include_metrics and "metrics" in info:
+                metrics = info["metrics"]
+                response.metrics.total_executions = metrics["total_executions"]
+                response.metrics.total_errors = metrics["total_errors"]
+                response.metrics.average_execution_time_ms = metrics["average_execution_time_ms"]
+                if metrics["last_execution_timestamp"]:
+                    response.metrics.last_execution_timestamp = int(metrics["last_execution_timestamp"])
+            
+            return response
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get pipeline info: {e}")
+            return execution_pb2.GetPipelineInfoResponse(
+                status=types_pb2.EXECUTION_STATUS_ERROR,
+                error_message=str(e)
+            )
+    
+    async def ExecutePipeline(
+        self,
+        request: execution_pb2.ExecutePipelineRequest,
+        context: grpc.aio.ServicerContext
+    ) -> execution_pb2.ExecutePipelineResponse:
+        """Execute a registered pipeline."""
+        try:
+            from remotemedia.core.pipeline_registry import get_global_registry
+            
+            registry = get_global_registry()
+            
+            # Deserialize input data
+            serializer = self._get_serializer(request.serialization_format)
+            input_data = serializer.deserialize(request.input_data)
+            
+            # Execute pipeline
+            result = await registry.execute_pipeline(
+                request.pipeline_id,
+                input_data,
+                runtime_config=dict(request.runtime_config) if request.runtime_config else None
+            )
+            
+            # Serialize result
+            output_data = serializer.serialize(result)
+            
+            return execution_pb2.ExecutePipelineResponse(
+                status=types_pb2.EXECUTION_STATUS_SUCCESS,
+                output_data=output_data,
+                execution_id=f"exec_{request.pipeline_id}_{int(time.time() * 1000)}"
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Failed to execute pipeline: {e}")
+            return execution_pb2.ExecutePipelineResponse(
+                status=types_pb2.EXECUTION_STATUS_ERROR,
+                error_message=str(e),
+                error_traceback=traceback.format_exc()
+            )
+    
+    async def StreamPipeline(
+        self,
+        request_iterator: AsyncIterable[execution_pb2.StreamPipelineRequest],
+        context: grpc.aio.ServicerContext
+    ) -> AsyncGenerator[execution_pb2.StreamPipelineResponse, None]:
+        """Stream data through a registered pipeline."""
+        session_id = None
+        pipeline_instance = None
+        serializer = None
+        
+        try:
+            from remotemedia.core.pipeline_registry import get_global_registry
+            
+            registry = get_global_registry()
+            
+            async for request in request_iterator:
+                if request.HasField("init"):
+                    # Initialize streaming session
+                    init = request.init
+                    session_id = f"stream_{init.pipeline_id}_{int(time.time() * 1000)}"
+                    
+                    # Get pipeline instance
+                    pipeline_instance = await registry.get_pipeline_instance(init.pipeline_id)
+                    if not pipeline_instance:
+                        yield execution_pb2.StreamPipelineResponse(
+                            error=f"Pipeline not found: {init.pipeline_id}"
+                        )
+                        return
+                    
+                    # Initialize pipeline if needed
+                    if not pipeline_instance.is_initialized:
+                        await pipeline_instance.initialize()
+                    
+                    # Set up serializer
+                    serializer = self._get_serializer(init.serialization_format)
+                    
+                    # Create session
+                    registry.create_streaming_session(init.pipeline_id, session_id)
+                    
+                    # Send acknowledgment
+                    ack = execution_pb2.StreamPipelineAck(
+                        session_id=session_id,
+                        ready=True
+                    )
+                    yield execution_pb2.StreamPipelineResponse(ack=ack)
+                    
+                elif request.HasField("data"):
+                    # Process data through pipeline
+                    if not pipeline_instance or not serializer:
+                        yield execution_pb2.StreamPipelineResponse(
+                            error="Session not initialized"
+                        )
+                        return
+                    
+                    # Deserialize input
+                    input_data = serializer.deserialize(request.data)
+                    
+                    # Process through pipeline
+                    if hasattr(pipeline_instance, 'process_stream'):
+                        # Handle streaming pipeline
+                        async for result in pipeline_instance.process_stream(input_data):
+                            output_data = serializer.serialize(result)
+                            yield execution_pb2.StreamPipelineResponse(data=output_data)
+                    else:
+                        # Handle non-streaming pipeline
+                        result = await pipeline_instance.process(input_data)
+                        output_data = serializer.serialize(result)
+                        yield execution_pb2.StreamPipelineResponse(data=output_data)
+                    
+                elif request.HasField("control"):
+                    # Handle control messages
+                    control = request.control
+                    
+                    if control.type == execution_pb2.StreamControl.CLOSE:
+                        if session_id:
+                            registry.close_streaming_session(session_id)
+                        if pipeline_instance and pipeline_instance.is_initialized:
+                            await pipeline_instance.cleanup()
+                        return
+                    
+                    elif control.type == execution_pb2.StreamControl.FLUSH:
+                        if pipeline_instance:
+                            # Flush any buffered data
+                            for node in pipeline_instance.nodes:
+                                if hasattr(node, 'flush'):
+                                    await node.flush()
+                    
+                    # Send status update
+                    status = execution_pb2.StreamPipelineStatus(
+                        session_id=session_id or "",
+                        is_active=True
+                    )
+                    yield execution_pb2.StreamPipelineResponse(status=status)
+                    
+        except Exception as e:
+            self.logger.error(f"Stream pipeline error: {e}")
+            yield execution_pb2.StreamPipelineResponse(
+                error=str(e)
+            )
+        finally:
+            # Clean up
+            if session_id:
+                registry.close_streaming_session(session_id)
+            if pipeline_instance and pipeline_instance.is_initialized:
+                await pipeline_instance.cleanup()
 
 
 class HealthServicer(health_pb2_grpc.HealthServicer):

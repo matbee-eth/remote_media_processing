@@ -91,6 +91,36 @@ class RemoteExecutionServiceStub(object):
                 request_serializer=execution__pb2.ExportTypeScriptRequest.SerializeToString,
                 response_deserializer=execution__pb2.ExportTypeScriptResponse.FromString,
                 _registered_method=True)
+        self.RegisterPipeline = channel.unary_unary(
+                '/remotemedia.execution.RemoteExecutionService/RegisterPipeline',
+                request_serializer=execution__pb2.RegisterPipelineRequest.SerializeToString,
+                response_deserializer=execution__pb2.RegisterPipelineResponse.FromString,
+                _registered_method=True)
+        self.UnregisterPipeline = channel.unary_unary(
+                '/remotemedia.execution.RemoteExecutionService/UnregisterPipeline',
+                request_serializer=execution__pb2.UnregisterPipelineRequest.SerializeToString,
+                response_deserializer=execution__pb2.UnregisterPipelineResponse.FromString,
+                _registered_method=True)
+        self.ListPipelines = channel.unary_unary(
+                '/remotemedia.execution.RemoteExecutionService/ListPipelines',
+                request_serializer=execution__pb2.ListPipelinesRequest.SerializeToString,
+                response_deserializer=execution__pb2.ListPipelinesResponse.FromString,
+                _registered_method=True)
+        self.GetPipelineInfo = channel.unary_unary(
+                '/remotemedia.execution.RemoteExecutionService/GetPipelineInfo',
+                request_serializer=execution__pb2.GetPipelineInfoRequest.SerializeToString,
+                response_deserializer=execution__pb2.GetPipelineInfoResponse.FromString,
+                _registered_method=True)
+        self.ExecutePipeline = channel.unary_unary(
+                '/remotemedia.execution.RemoteExecutionService/ExecutePipeline',
+                request_serializer=execution__pb2.ExecutePipelineRequest.SerializeToString,
+                response_deserializer=execution__pb2.ExecutePipelineResponse.FromString,
+                _registered_method=True)
+        self.StreamPipeline = channel.stream_stream(
+                '/remotemedia.execution.RemoteExecutionService/StreamPipeline',
+                request_serializer=execution__pb2.StreamPipelineRequest.SerializeToString,
+                response_deserializer=execution__pb2.StreamPipelineResponse.FromString,
+                _registered_method=True)
 
 
 class RemoteExecutionServiceServicer(object):
@@ -173,6 +203,43 @@ class RemoteExecutionServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RegisterPipeline(self, request, context):
+        """Pipeline management services
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UnregisterPipeline(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListPipelines(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetPipelineInfo(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ExecutePipeline(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamPipeline(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_RemoteExecutionServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -230,6 +297,36 @@ def add_RemoteExecutionServiceServicer_to_server(servicer, server):
                     servicer.ExportTypeScriptDefinitions,
                     request_deserializer=execution__pb2.ExportTypeScriptRequest.FromString,
                     response_serializer=execution__pb2.ExportTypeScriptResponse.SerializeToString,
+            ),
+            'RegisterPipeline': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterPipeline,
+                    request_deserializer=execution__pb2.RegisterPipelineRequest.FromString,
+                    response_serializer=execution__pb2.RegisterPipelineResponse.SerializeToString,
+            ),
+            'UnregisterPipeline': grpc.unary_unary_rpc_method_handler(
+                    servicer.UnregisterPipeline,
+                    request_deserializer=execution__pb2.UnregisterPipelineRequest.FromString,
+                    response_serializer=execution__pb2.UnregisterPipelineResponse.SerializeToString,
+            ),
+            'ListPipelines': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListPipelines,
+                    request_deserializer=execution__pb2.ListPipelinesRequest.FromString,
+                    response_serializer=execution__pb2.ListPipelinesResponse.SerializeToString,
+            ),
+            'GetPipelineInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetPipelineInfo,
+                    request_deserializer=execution__pb2.GetPipelineInfoRequest.FromString,
+                    response_serializer=execution__pb2.GetPipelineInfoResponse.SerializeToString,
+            ),
+            'ExecutePipeline': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExecutePipeline,
+                    request_deserializer=execution__pb2.ExecutePipelineRequest.FromString,
+                    response_serializer=execution__pb2.ExecutePipelineResponse.SerializeToString,
+            ),
+            'StreamPipeline': grpc.stream_stream_rpc_method_handler(
+                    servicer.StreamPipeline,
+                    request_deserializer=execution__pb2.StreamPipelineRequest.FromString,
+                    response_serializer=execution__pb2.StreamPipelineResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -531,6 +628,168 @@ class RemoteExecutionService(object):
             '/remotemedia.execution.RemoteExecutionService/ExportTypeScriptDefinitions',
             execution__pb2.ExportTypeScriptRequest.SerializeToString,
             execution__pb2.ExportTypeScriptResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RegisterPipeline(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/remotemedia.execution.RemoteExecutionService/RegisterPipeline',
+            execution__pb2.RegisterPipelineRequest.SerializeToString,
+            execution__pb2.RegisterPipelineResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UnregisterPipeline(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/remotemedia.execution.RemoteExecutionService/UnregisterPipeline',
+            execution__pb2.UnregisterPipelineRequest.SerializeToString,
+            execution__pb2.UnregisterPipelineResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListPipelines(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/remotemedia.execution.RemoteExecutionService/ListPipelines',
+            execution__pb2.ListPipelinesRequest.SerializeToString,
+            execution__pb2.ListPipelinesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetPipelineInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/remotemedia.execution.RemoteExecutionService/GetPipelineInfo',
+            execution__pb2.GetPipelineInfoRequest.SerializeToString,
+            execution__pb2.GetPipelineInfoResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExecutePipeline(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/remotemedia.execution.RemoteExecutionService/ExecutePipeline',
+            execution__pb2.ExecutePipelineRequest.SerializeToString,
+            execution__pb2.ExecutePipelineResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamPipeline(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/remotemedia.execution.RemoteExecutionService/StreamPipeline',
+            execution__pb2.StreamPipelineRequest.SerializeToString,
+            execution__pb2.StreamPipelineResponse.FromString,
             options,
             channel_credentials,
             insecure,

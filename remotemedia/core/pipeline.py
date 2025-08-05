@@ -380,7 +380,7 @@ class Pipeline:
     @property
     def remote_node_count(self) -> int:
         """Get the number of remote nodes in the pipeline."""
-        return sum(1 for node in self.nodes if node.is_remote)
+        return sum(1 for node in self.nodes if getattr(node, 'is_remote', False))
     
     def get_config(self) -> Dict[str, Any]:
         """Get the pipeline configuration."""
@@ -391,6 +391,182 @@ class Pipeline:
             "nodes": [node.get_config() for node in self.nodes],
             "is_initialized": self.is_initialized,
         }
+    
+    def export_definition(self) -> Dict[str, Any]:
+        """
+        Export pipeline as a complete definition for remote execution.
+        
+        Returns:
+            Dictionary containing the complete pipeline definition including:
+            - nodes: List of node definitions with configurations
+            - connections: Data flow connections between nodes
+            - metadata: Pipeline metadata and properties
+            - dependencies: Required Python packages
+        """
+        return {
+            "name": self.name,
+            "nodes": [self._export_node_definition(i, node) for i, node in enumerate(self.nodes)],
+            "connections": self._extract_connections(),
+            "metadata": self._get_export_metadata(),
+            "dependencies": self._extract_dependencies()
+        }
+    
+    def _export_node_definition(self, index: int, node: Node) -> Dict[str, Any]:
+        """Export a single node definition."""
+        node_config = node.get_config()
+        is_remote = getattr(node, 'is_remote', False)
+        
+        return {
+            "node_id": f"{node.name}_{index}",
+            "node_type": node.__class__.__name__,
+            "config": node_config.get("config", {}),
+            "is_remote": is_remote,
+            "remote_endpoint": getattr(getattr(node, 'remote_config', None), 'host', None) if is_remote else None,
+            "is_streaming": getattr(node, 'is_streaming', False),
+            "is_source": getattr(node, 'is_source', False),
+            "is_sink": getattr(node, 'is_sink', False),
+            "module": node.__class__.__module__,
+            "class_name": node.__class__.__name__
+        }
+    
+    def _extract_connections(self) -> List[Dict[str, Any]]:
+        """
+        Extract node connections from pipeline structure.
+        
+        In a linear pipeline, each node connects to the next node.
+        """
+        connections = []
+        for i in range(len(self.nodes) - 1):
+            connections.append({
+                "from_node": f"{self.nodes[i].name}_{i}",
+                "to_node": f"{self.nodes[i + 1].name}_{i + 1}",
+                "output_port": "default",
+                "input_port": "default"
+            })
+        return connections
+    
+    def _get_export_metadata(self) -> Dict[str, Any]:
+        """Get export metadata for the pipeline."""
+        return {
+            "exported_at": time.time(),
+            "node_count": str(self.node_count),
+            "remote_node_count": str(self.remote_node_count),
+            "has_streaming_nodes": str(any(getattr(node, 'is_streaming', False) for node in self.nodes)),
+            "pipeline_type": "linear"  # Current pipelines are linear, future: DAG
+        }
+    
+    def _extract_dependencies(self) -> List[str]:
+        """
+        Extract all Python package dependencies needed by pipeline nodes.
+        
+        Returns:
+            List of package names required for pipeline execution
+        """
+        dependencies = set()
+        
+        # Add core dependencies
+        dependencies.add("remotemedia")
+        
+        # Extract dependencies from each node
+        for node in self.nodes:
+            # Check if node has explicit dependencies
+            if hasattr(node, 'dependencies'):
+                dependencies.update(node.dependencies)
+            
+            # Check for remote config pip packages
+            is_remote = getattr(node, 'is_remote', False)
+            remote_config = getattr(node, 'remote_config', None)
+            if is_remote and remote_config and hasattr(remote_config, 'pip_packages'):
+                dependencies.update(remote_config.pip_packages or [])
+            
+            # Add module-specific dependencies
+            module_name = node.__class__.__module__
+            if 'remotemedia.nodes.ml' in module_name:
+                dependencies.add("transformers")
+                dependencies.add("torch")
+            elif 'remotemedia.nodes.audio' in module_name:
+                dependencies.add("numpy")
+                dependencies.add("scipy")
+            elif 'remotemedia.webrtc' in module_name:
+                dependencies.add("aiortc")
+                dependencies.add("aiohttp")
+        
+        return sorted(list(dependencies))
+    
+    @classmethod
+    async def from_definition(cls, definition: Dict[str, Any]) -> 'Pipeline':
+        """
+        Create a pipeline from an exported definition.
+        
+        Args:
+            definition: Pipeline definition dictionary
+            
+        Returns:
+            Configured Pipeline instance
+            
+        Raises:
+            PipelineError: If definition is invalid or nodes cannot be created
+        """
+        pipeline = cls(name=definition.get("name", "ImportedPipeline"))
+        
+        # Create nodes from definitions
+        node_instances = {}
+        for node_def in definition.get("nodes", []):
+            try:
+                node = await cls._create_node_from_definition(node_def)
+                node_instances[node_def["node_id"]] = node
+                pipeline.add_node(node)
+            except Exception as e:
+                raise PipelineError(f"Failed to create node {node_def['node_id']}: {e}")
+        
+        # Note: Connections are implicit in linear pipeline order
+        # Future enhancement: Support DAG-based pipelines with explicit connections
+        
+        return pipeline
+    
+    @classmethod
+    async def _create_node_from_definition(cls, node_def: Dict[str, Any]) -> Node:
+        """
+        Create a node instance from its definition.
+        
+        Args:
+            node_def: Node definition dictionary
+            
+        Returns:
+            Configured Node instance
+        """
+        import importlib
+        
+        # Import the node class
+        module_name = node_def.get("module", "remotemedia.nodes")
+        class_name = node_def.get("class_name", node_def["node_type"])
+        
+        try:
+            module = importlib.import_module(module_name)
+            node_class = getattr(module, class_name)
+        except (ImportError, AttributeError) as e:
+            raise PipelineError(f"Cannot import {class_name} from {module_name}: {e}")
+        
+        # Create node with configuration
+        config = node_def.get("config", {})
+        
+        # Handle remote configuration
+        if node_def.get("is_remote"):
+            from .node import RemoteExecutorConfig
+            remote_config = RemoteExecutorConfig(
+                host=node_def.get("remote_endpoint", "localhost"),
+                port=50052  # Default port
+            )
+            config["remote_config"] = remote_config
+        
+        # Create the node instance
+        node = node_class(**config)
+        
+        # Set streaming flag if present
+        if node_def.get("is_streaming"):
+            node.is_streaming = True
+        
+        return node
     
     def __iter__(self) -> Iterator[Node]:
         """Iterate over nodes in the pipeline."""
