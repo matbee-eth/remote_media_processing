@@ -2,6 +2,7 @@
   "name": "@remotemedia/nodejs-client",
   "version": "0.1.0",
   "description": "Node.js/TypeScript client for RemoteMedia Processing SDK",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

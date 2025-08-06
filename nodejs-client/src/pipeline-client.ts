@@ -87,7 +87,9 @@ export class PipelineClient extends EventEmitter {
    * Connect to the gRPC service
    */
   async connect(): Promise<void> {
-    const protoPath = path.join(__dirname, '../../../remote_service/protos/execution.proto');
+    // Use import.meta.url to get current file path in ES modules
+    const currentDir = path.dirname(new URL(import.meta.url).pathname);
+    const protoPath = path.join(currentDir, '../../../remote_service/protos/execution.proto');
     
     const packageDefinition = protoLoader.loadSync(protoPath, {
       keepCase: true,

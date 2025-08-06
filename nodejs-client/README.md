@@ -1,15 +1,17 @@
 # RemoteMedia Node.js Client
 
-Official Node.js/TypeScript client for the RemoteMedia Processing SDK. Execute any registered server node remotely with a simple, intuitive API.
+Official Node.js/TypeScript client for the RemoteMedia Processing SDK. Execute remote nodes and complete pipelines with a simple, intuitive API.
 
 ## Features
 
-- 🚀 **Simple API** - Execute remote nodes with just a few lines of code
-- 🔄 **Streaming Support** - Real-time bidirectional streaming for compatible nodes
+- 🚀 **Simple API** - Execute remote nodes and pipelines with just a few lines of code
+- 📊 **Pipeline Management** - Discover, register, execute, and stream data through pipelines
+- 🔄 **Streaming Support** - Real-time bidirectional streaming for compatible nodes and pipelines
 - 🎯 **Type Safety** - Full TypeScript support with comprehensive type definitions
 - 🔁 **Automatic Retry** - Built-in retry logic with exponential backoff
 - 🐍 **Python-like API** - Familiar patterns for Python developers
 - 📦 **Zero Configuration** - Works out of the box with sensible defaults
+- 🔧 **Pipeline Builder** - Create pipeline definitions directly in JavaScript
 
 ## Installation
 
@@ -24,6 +26,8 @@ yarn add @remotemedia/nodejs-client
 ```
 
 ## Quick Start
+
+### Execute Individual Nodes
 
 ```typescript
 import { RemoteProxyClient } from '@remotemedia/nodejs-client';
@@ -47,6 +51,29 @@ const sentimentAnalyzer = await client.createNodeProxy(
 const result = await sentimentAnalyzer.process("I love this library!");
 console.log(result);
 // Output: [{ label: 'POSITIVE', score: 0.9998 }]
+```
+
+### Execute Registered Pipelines
+
+```typescript
+import { PipelineClient } from '@remotemedia/nodejs-client';
+
+// Connect to the pipeline service
+const client = new PipelineClient({
+  host: 'localhost',
+  port: 50052
+});
+
+// List available pipelines
+const pipelines = await client.listPipelines();
+console.log('Available:', pipelines.map(p => p.name));
+
+// Execute a pipeline
+const result = await client.executePipeline('webrtc_pipeline', {
+  audio_data: audioBuffer,
+  sample_rate: 16000
+});
+console.log('Processed:', result);
 ```
 
 ## TypeScript Type Generation
@@ -103,6 +130,119 @@ GRPC_HOST=localhost GRPC_PORT=50052 OUTPUT_DIR=./my-types npm run generate-types
 ```
 
 ## Usage Patterns
+
+### Pipeline Management
+
+#### Create and Register Pipelines from JavaScript
+
+```typescript
+import { PipelineClient, PipelineBuilder } from '@remotemedia/nodejs-client';
+
+const client = new PipelineClient({ host: 'localhost', port: 50052 });
+
+// Build a pipeline in JavaScript
+const builder = new PipelineBuilder('audio_processing');
+builder
+  .addNode('DataSourceNode', { 
+    buffer_size: 100,
+    name: 'audio_input'
+  })
+  .addNode('AudioTransform', {
+    output_sample_rate: 16000,
+    output_channels: 1
+  })
+  .addNode('TransformersPipelineNode', {
+    task: 'automatic-speech-recognition',
+    model: 'openai/whisper-base'
+  })
+  .addNode('DataSinkNode', {
+    result_key: 'transcription'
+  })
+  .connect(0, 1)  // source -> audio transform
+  .connect(1, 2)  // audio transform -> ASR
+  .connect(2, 3); // ASR -> sink
+
+// Register the pipeline on the server
+const pipelineId = await client.registerPipeline(
+  'audio_processing',
+  builder.build(),
+  {
+    metadata: {
+      description: 'Audio transcription pipeline',
+      author: 'nodejs-client',
+      version: '1.0.0'
+    }
+  }
+);
+
+// Execute the registered pipeline
+const result = await client.executePipeline(pipelineId, audioData);
+console.log('Transcription:', result.transcription);
+```
+
+#### Stream Data Through Pipelines
+
+```typescript
+import { PipelineClient } from '@remotemedia/nodejs-client';
+
+const client = new PipelineClient({ host: 'localhost', port: 50052 });
+
+// Create a streaming pipeline connection
+const stream = client.streamPipeline('realtime_processing_pipeline', {
+  bidirectional: true,
+  bufferSize: 10
+});
+
+// Handle incoming data
+stream.on('data', (chunk) => {
+  console.log('Received processed chunk:', chunk);
+  
+  // Send more data based on results
+  if (chunk.needsMoreData) {
+    stream.send({ additionalData: getMoreData() });
+  }
+});
+
+stream.on('error', (error) => {
+  console.error('Stream error:', error);
+});
+
+stream.on('end', () => {
+  console.log('Stream completed');
+});
+
+// Send initial data
+await stream.send({ startData: initialData });
+
+// Send more data as needed
+for (const chunk of dataChunks) {
+  await stream.send(chunk);
+}
+
+// Close the stream when done
+await stream.end();
+```
+
+#### Pipeline Discovery and Metrics
+
+```typescript
+// Discover pipelines with filtering
+const pipelines = await client.listPipelines({
+  filter: {
+    tags: ['audio', 'realtime'],
+    namePattern: 'webrtc_*'
+  }
+});
+
+// Get detailed pipeline information
+const info = await client.getPipelineInfo('webrtc_pipeline');
+console.log('Pipeline nodes:', info.definition.nodes);
+console.log('Dependencies:', info.definition.dependencies);
+
+// Session management
+const sessions = await client.getActiveSessions('webrtc_pipeline');
+console.log(`Active sessions: ${sessions.length}`);
+```
 
 ### Python-style Context Manager
 
@@ -254,10 +394,18 @@ const result = await retryOperation(
 
 - **TextProcessorNode** - Basic text operations (uppercase, word count, etc.)
 
+### I/O Nodes (For JavaScript Integration)
+
+- **DataSourceNode** - Inject data from JavaScript into pipelines
+- **DataSinkNode** - Extract results from pipelines to JavaScript
+- **JavaScriptBridgeNode** - Bidirectional communication with JavaScript
+- **BidirectionalNode** - Full-duplex streaming between JavaScript and Python
+
 ### Utility Nodes
 
 - **CalculatorNode** - Mathematical operations
 - **FormatConverter** - Convert between data formats
+- **PassThroughNode** - Pass data unchanged (for testing/debugging)
 
 ### Advanced Nodes
 
@@ -327,6 +475,10 @@ See the [examples](./examples) directory for complete working examples:
 - `pipeline-processing.ts` - Multi-step pipeline processing
 - `streaming-audio.ts` - Real-time audio streaming
 - `batch-processing.ts` - Efficient batch operations
+- `test-pipeline.js` - Complete pipeline registration and execution
+- `test-full-pipeline.js` - End-to-end pipeline integration test
+- `calculator-pipeline.js` - Simple calculator pipeline example
+- `discover-webrtc-pipeline.js` - **NEW:** Discover and use WebRTC speech-to-speech pipeline
 
 ## Error Handling
 

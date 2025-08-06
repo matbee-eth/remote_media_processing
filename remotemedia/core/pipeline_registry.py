@@ -17,6 +17,7 @@ from collections import defaultdict
 
 from .pipeline import Pipeline
 from .exceptions import PipelineError
+from ..persistence import DatabaseManager, PipelineStore, NodeStore, StoredPipeline, AccessLevel
 
 logger = logging.getLogger(__name__)
 
@@ -68,14 +69,40 @@ class PipelineRegistry:
     allowing pipelines to be registered, discovered, and executed remotely.
     """
     
-    def __init__(self):
-        """Initialize the pipeline registry."""
+    def __init__(self, db_path: Optional[str] = None, enable_persistence: bool = True):
+        """Initialize the pipeline registry.
+        
+        Args:
+            db_path: Optional path to database file for persistence
+            enable_persistence: Whether to enable database persistence
+        """
         self.pipelines: Dict[str, RegisteredPipeline] = {}
         self.pipeline_instances: Dict[str, Pipeline] = {}
         self.session_pipelines: Dict[str, str] = {}  # session_id -> pipeline_id
         self._cleanup_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
         self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # Initialize persistence layer if enabled
+        self.enable_persistence = enable_persistence
+        self.db_manager: Optional[DatabaseManager] = None
+        self.pipeline_store: Optional[PipelineStore] = None
+        self.node_store: Optional[NodeStore] = None
+        
+        if enable_persistence:
+            db_path = db_path or "pipeline_registry.db"
+            self.db_manager = DatabaseManager(db_path)
+            self.pipeline_store = PipelineStore(self.db_manager)
+            self.node_store = NodeStore(self.db_manager)
+            self._initialized = False
+    
+    async def initialize(self):
+        """Initialize persistence layer if enabled."""
+        if self.enable_persistence and not self._initialized:
+            await self.db_manager.initialize()
+            self._initialized = True
+            # Load persisted pipelines
+            await self._load_persisted_pipelines()
     
     async def register_pipeline(
         self,
@@ -84,7 +111,10 @@ class PipelineRegistry:
         metadata: Optional[Dict[str, Any]] = None,
         dependencies: Optional[List[str]] = None,
         category: str = "general",
-        description: str = ""
+        description: str = "",
+        owner_id: Optional[str] = None,
+        access_level: AccessLevel = AccessLevel.PRIVATE,
+        persist: bool = True
     ) -> str:
         """
         Register a pipeline definition.
@@ -104,6 +134,10 @@ class PipelineRegistry:
             PipelineError: If registration fails
         """
         async with self._lock:
+            # Ensure persistence is initialized
+            if self.enable_persistence:
+                await self.initialize()
+            
             # Generate unique pipeline ID
             pipeline_id = f"pipeline_{name}_{int(time.time() * 1000)}"
             
@@ -120,6 +154,35 @@ class PipelineRegistry:
             )
             
             self.pipelines[pipeline_id] = registered
+            
+            # Persist to database if enabled
+            if self.enable_persistence and persist and owner_id:
+                try:
+                    # Ensure user exists
+                    user = await self.db_manager.get_user(owner_id)
+                    if not user:
+                        await self.db_manager.create_user(owner_id, owner_id)
+                    
+                    # Store pipeline in database
+                    stored = await self.pipeline_store.create_pipeline(
+                        name=name,
+                        definition=definition,
+                        owner_id=owner_id,
+                        access_level=access_level,
+                        description=description,
+                        tags=metadata.get('tags', []) if metadata else [],
+                        metadata=metadata or {},
+                        is_template=metadata.get('is_template', False) if metadata else False
+                    )
+                    
+                    # Update pipeline ID to match stored ID
+                    pipeline_id = stored.id
+                    registered.pipeline_id = pipeline_id
+                    self.pipelines[pipeline_id] = registered
+                    
+                    self.logger.info(f"Persisted pipeline '{name}' with ID: {pipeline_id}")
+                except Exception as e:
+                    self.logger.error(f"Failed to persist pipeline: {e}")
             
             self.logger.info(f"Registered pipeline '{name}' with ID: {pipeline_id}")
             return pipeline_id
@@ -378,6 +441,144 @@ class PipelineRegistry:
             Pipeline ID or None if not found
         """
         return self.session_pipelines.get(session_id)
+    
+    async def _load_persisted_pipelines(self):
+        """Load persisted pipelines from database."""
+        if not self.enable_persistence:
+            return
+        
+        try:
+            # Load all public and readonly pipelines
+            stored_pipelines = await self.pipeline_store.list_pipelines(
+                access_level=AccessLevel.PUBLIC,
+                limit=1000
+            )
+            
+            readonly_pipelines = await self.pipeline_store.list_pipelines(
+                access_level=AccessLevel.READONLY,
+                limit=1000
+            )
+            
+            all_pipelines = stored_pipelines + readonly_pipelines
+            
+            for stored in all_pipelines:
+                # Convert stored pipeline to registered pipeline
+                registered = RegisteredPipeline(
+                    pipeline_id=stored.id,
+                    name=stored.name,
+                    definition=stored.definition,
+                    metadata=stored.metadata,
+                    registered_timestamp=stored.created_at.timestamp(),
+                    category=stored.metadata.get('category', 'general'),
+                    description=stored.description or "",
+                    dependencies=stored.metadata.get('dependencies', [])
+                )
+                
+                self.pipelines[stored.id] = registered
+                self.logger.info(f"Loaded persisted pipeline: {stored.name} ({stored.id})")
+            
+            self.logger.info(f"Loaded {len(all_pipelines)} persisted pipelines")
+        except Exception as e:
+            self.logger.error(f"Failed to load persisted pipelines: {e}")
+    
+    async def save_pipeline(
+        self,
+        pipeline_id: str,
+        owner_id: str,
+        access_level: AccessLevel = AccessLevel.PRIVATE,
+        persist_nodes: bool = False
+    ) -> bool:
+        """
+        Save an in-memory pipeline to persistent storage.
+        
+        Args:
+            pipeline_id: Pipeline ID to save
+            owner_id: User ID of the owner
+            access_level: Access control level
+            persist_nodes: Whether to also persist individual nodes
+            
+        Returns:
+            True if saved successfully
+        """
+        if not self.enable_persistence:
+            return False
+        
+        if pipeline_id not in self.pipelines:
+            return False
+        
+        registered = self.pipelines[pipeline_id]
+        
+        try:
+            await self.initialize()
+            
+            # Ensure user exists
+            user = await self.db_manager.get_user(owner_id)
+            if not user:
+                await self.db_manager.create_user(owner_id, owner_id)
+            
+            # Store pipeline
+            stored = await self.pipeline_store.create_pipeline(
+                name=registered.name,
+                definition=registered.definition,
+                owner_id=owner_id,
+                access_level=access_level,
+                description=registered.description,
+                tags=registered.metadata.get('tags', []),
+                metadata=registered.metadata,
+                is_template=registered.metadata.get('is_template', False),
+                persist_nodes=persist_nodes
+            )
+            
+            self.logger.info(f"Saved pipeline {pipeline_id} to persistent storage")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to save pipeline: {e}")
+            return False
+    
+    async def load_pipeline(
+        self,
+        stored_id: str,
+        user_id: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Load a pipeline from persistent storage.
+        
+        Args:
+            stored_id: Stored pipeline ID
+            user_id: User ID for access control
+            
+        Returns:
+            Registry pipeline ID if loaded successfully
+        """
+        if not self.enable_persistence:
+            return None
+        
+        try:
+            await self.initialize()
+            
+            # Load from database
+            stored = await self.pipeline_store.get_pipeline(stored_id, user_id)
+            if not stored:
+                return None
+            
+            # Register in memory
+            registered = RegisteredPipeline(
+                pipeline_id=stored.id,
+                name=stored.name,
+                definition=stored.definition,
+                metadata=stored.metadata,
+                registered_timestamp=stored.created_at.timestamp(),
+                category=stored.metadata.get('category', 'general'),
+                description=stored.description or "",
+                dependencies=stored.metadata.get('dependencies', [])
+            )
+            
+            self.pipelines[stored.id] = registered
+            self.logger.info(f"Loaded pipeline from storage: {stored.name} ({stored.id})")
+            return stored.id
+        except Exception as e:
+            self.logger.error(f"Failed to load pipeline: {e}")
+            return None
     
     def close_streaming_session(self, session_id: str) -> bool:
         """

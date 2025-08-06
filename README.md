@@ -20,6 +20,9 @@ The RemoteMedia Processing SDK enables developers to create complex, real-time p
 - **Automatic Module Loading**: Pre-loads Python modules on the server for proper deserialization
 - **Pip Package Dependencies**: Automatically install required packages on remote servers
 - **TypeScript/Node.js Support**: Export TypeScript interface definitions for type-safe Node.js integration
+- **Pipeline Export/Import**: Export complete pipeline definitions for cross-language interoperability
+- **JavaScript Pipeline Integration**: Create and execute pipelines from JavaScript/TypeScript clients
+- **Dynamic Pipeline Registry**: Discover and execute registered pipelines via gRPC
 
 ## Development Status
 
@@ -180,6 +183,168 @@ See `examples/test_streaming_generators.py` for comprehensive examples.
 
 See `examples/simplest_proxy.py` and `examples/test_transparent_generators.py` for more examples.
 
+### Pipeline Export and JavaScript Integration (NEW!)
+
+The SDK now supports exporting complete pipeline definitions that can be discovered, executed, and even created by JavaScript/TypeScript clients:
+
+#### Registering Pipelines for Export
+
+```python
+from remotemedia.core import Pipeline
+from remotemedia.core.pipeline_registry import PipelineRegistry
+from remotemedia.nodes import CalculatorNode, PassThroughNode
+
+# Create a pipeline
+pipeline = Pipeline(
+    name="calculator_pipeline",
+    nodes=[
+        PassThroughNode(),
+        CalculatorNode(),
+        PassThroughNode()
+    ]
+)
+
+# Register it with the global registry
+registry = PipelineRegistry.get_instance()
+pipeline_id = await registry.register_pipeline(
+    name="calculator_pipeline",
+    pipeline=pipeline,
+    metadata={
+        "description": "A simple calculator pipeline",
+        "version": "1.0.0",
+        "author": "Example Author"
+    }
+)
+
+# Pipeline is now discoverable and executable via gRPC!
+```
+
+#### JavaScript Client Usage
+
+```javascript
+import { PipelineClient } from '@remote_media_processing/nodejs-client';
+
+// Connect to the server
+const client = new PipelineClient({
+  host: 'localhost',
+  port: 50052
+});
+
+// Discover available pipelines
+const pipelines = await client.listPipelines();
+console.log('Available pipelines:', pipelines);
+
+// Get detailed info about a specific pipeline
+const info = await client.getPipelineInfo('calculator_pipeline');
+console.log('Pipeline nodes:', info.definition.nodes);
+
+// Execute a registered pipeline
+const result = await client.executePipeline('calculator_pipeline', {
+  operation: 'multiply',
+  args: [10, 5]
+});
+console.log('Result:', result); // { result: 50 }
+
+// Stream data through a pipeline
+const stream = client.streamPipeline('data_processing_pipeline');
+stream.on('data', (chunk) => console.log('Received:', chunk));
+stream.on('error', (err) => console.error('Error:', err));
+stream.on('end', () => console.log('Stream complete'));
+
+// Send data to the pipeline
+await stream.send({ data: 'process this' });
+await stream.end();
+```
+
+#### Creating Pipelines from JavaScript
+
+```javascript
+import { PipelineClient, PipelineBuilder } from '@remote_media_processing/nodejs-client';
+
+const client = new PipelineClient({ host: 'localhost', port: 50052 });
+
+// Build a pipeline definition in JavaScript
+const builder = new PipelineBuilder('my_js_pipeline');
+builder
+  .addNode('DataSourceNode', { buffer_size: 100 })
+  .addNode('CalculatorNode', {})
+  .addNode('DataSinkNode', { result_key: 'output' })
+  .connect(0, 1)  // Connect source to calculator
+  .connect(1, 2); // Connect calculator to sink
+
+// Register the JavaScript-created pipeline on the server
+const pipelineId = await client.registerPipeline(
+  'my_js_pipeline',
+  builder.build(),
+  {
+    metadata: {
+      description: 'Pipeline created from JavaScript',
+      source: 'nodejs-client'
+    }
+  }
+);
+
+// Now execute it
+const result = await client.executePipeline(pipelineId, {
+  operation: 'add',
+  args: [3, 7]
+});
+```
+
+#### Bidirectional Data Flow
+
+The SDK provides special I/O nodes for JavaScript integration:
+
+```python
+from remotemedia.nodes import DataSourceNode, DataSinkNode, JavaScriptBridgeNode
+
+# Create a pipeline with JavaScript I/O points
+pipeline = Pipeline(
+    name="js_interactive_pipeline",
+    nodes=[
+        DataSourceNode(buffer_size=100),  # Receives data from JavaScript
+        YourProcessingNode(),
+        JavaScriptBridgeNode(),            # Bidirectional JavaScript communication
+        MoreProcessingNode(),
+        DataSinkNode(result_key="output")  # Sends results to JavaScript
+    ]
+)
+```
+
+From JavaScript:
+```javascript
+// Create a bidirectional stream
+const stream = client.streamPipeline('js_interactive_pipeline', {
+  bidirectional: true
+});
+
+// Send data and receive processed results
+stream.on('data', (result) => {
+  console.log('Processed:', result);
+  // Can send more data based on results
+  if (result.needsMoreData) {
+    stream.send({ moreData: true });
+  }
+});
+
+stream.send({ initialData: 'start processing' });
+```
+
+#### Pipeline Discovery API
+
+```javascript
+// List all registered pipelines with filtering
+const pipelines = await client.listPipelines({
+  filter: {
+    tags: ['audio', 'realtime'],
+    author: 'team-audio'
+  }
+});
+
+// Unregister when done
+await client.unregisterPipeline('pipeline_id');
+```
+
 ### TypeScript/Node.js Integration
 
 Generate TypeScript interface definitions for type-safe Node.js integration:
@@ -284,7 +449,8 @@ pip install remotemedia
 ```
 remotemedia/                 # Core SDK package
 ├── core/                   # Core pipeline and node classes
-│   ├── pipeline.py         # Pipeline management
+│   ├── pipeline.py         # Pipeline management with export/import
+│   ├── pipeline_registry.py # Global pipeline registry for discovery
 │   ├── node.py             # Base Node and RemoteExecutorConfig
 │   └── exceptions.py       # Custom exceptions
 ├── nodes/                  # Built-in processing nodes
@@ -295,7 +461,8 @@ remotemedia/                 # Core SDK package
 │   ├── calculator.py       # Calculator node for testing
 │   ├── text_processor.py   # Text processing node
 │   ├── code_executor.py    # Remote Python code execution
-│   └── serialized_class_executor.py  # CloudPickle class execution
+│   ├── serialized_class_executor.py  # CloudPickle class execution
+│   └── io_nodes.py         # DataSource/Sink nodes for JavaScript I/O
 ├── packaging/              # Code & dependency packaging (Phase 3)
 │   ├── dependency_analyzer.py  # AST-based import analysis
 │   └── code_packager.py    # Archive creation with dependencies
@@ -341,6 +508,8 @@ scripts/                    # Development scripts
 ## Documentation
 
 - [**Developer Guide**](DEVELOPER_GUIDE.md) - **Start here!** Essential guide for building with the SDK.
+- [**Pipeline Developer Guide**](PIPELINE_DEVELOPER_GUIDE.md) - Complete guide to pipeline export and JavaScript integration
+- [**Pipeline Registry Integration**](PIPELINE_REGISTRY_INTEGRATION.md) - WebRTC server integration with pipeline registry
 - [**TypeScript/Node.js Usage**](docs/TYPESCRIPT_USAGE.md) - Guide for using the SDK from Node.js applications
 - [Development Strategy](DevelopmentStrategyDocument.md)
 - [Project Tracking](PROJECT_TRACKING.md)

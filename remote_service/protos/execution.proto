@@ -43,6 +43,17 @@ service RemoteExecutionService {
   rpc GetPipelineInfo(GetPipelineInfoRequest) returns (GetPipelineInfoResponse);
   rpc ExecutePipeline(ExecutePipelineRequest) returns (ExecutePipelineResponse);
   rpc StreamPipeline(stream StreamPipelineRequest) returns (stream StreamPipelineResponse);
+  
+  // Persistence operations
+  rpc SavePipeline(SavePipelineRequest) returns (SavePipelineResponse);
+  rpc LoadPipeline(LoadPipelineRequest) returns (LoadPipelineResponse);
+  rpc ListStoredPipelines(ListStoredPipelinesRequest) returns (ListStoredPipelinesResponse);
+  rpc ClonePipeline(ClonePipelineRequest) returns (ClonePipelineResponse);
+  
+  // Node persistence operations
+  rpc SaveNode(SaveNodeRequest) returns (SaveNodeResponse);
+  rpc LoadNode(LoadNodeRequest) returns (LoadNodeResponse);
+  rpc ListStoredNodes(ListStoredNodesRequest) returns (ListStoredNodesResponse);
 }
 
 // Execute SDK Node Request
@@ -297,8 +308,11 @@ message RegisterPipelineRequest {
   string pipeline_name = 1;
   PipelineDefinition definition = 2;
   map<string, string> metadata = 3;
-  repeated string dependencies = 4;
-  bool auto_export = 5;  // Automatically export to TypeScript
+  string owner_id = 4;
+  string access_level = 5;  // "private", "public", "readonly", "team"
+  bool persist = 6;
+  repeated string dependencies = 7;
+  bool auto_export = 8;  // Automatically export to TypeScript
 }
 
 message RegisterPipelineResponse {
@@ -423,4 +437,142 @@ message StreamPipelineStatus {
   int64 items_processed = 2;
   int64 bytes_processed = 3;
   bool is_active = 4;
+}
+
+// Persistence-related messages
+
+// Save a pipeline to persistent storage
+message SavePipelineRequest {
+  string pipeline_id = 1;
+  string owner_id = 2;
+  string access_level = 3;
+  bool persist_nodes = 4;
+}
+
+message SavePipelineResponse {
+  ExecutionStatus status = 1;
+  string stored_id = 2;
+  string error_message = 3;
+}
+
+// Load a pipeline from persistent storage
+message LoadPipelineRequest {
+  string stored_id = 1;
+  string user_id = 2;
+}
+
+message LoadPipelineResponse {
+  ExecutionStatus status = 1;
+  string pipeline_id = 2;
+  PipelineDefinition definition = 3;
+  map<string, string> metadata = 4;
+  string error_message = 5;
+}
+
+// List stored pipelines
+message ListStoredPipelinesRequest {
+  string user_id = 1;
+  string owner_id = 2;
+  string access_level = 3;
+  repeated string tags = 4;
+  bool templates_only = 5;
+  int32 limit = 6;
+  int32 offset = 7;
+}
+
+message ListStoredPipelinesResponse {
+  repeated StoredPipelineInfo pipelines = 1;
+  int32 total_count = 2;
+}
+
+message StoredPipelineInfo {
+  string id = 1;
+  string name = 2;
+  string owner_id = 3;
+  string access_level = 4;
+  string description = 5;
+  repeated string tags = 6;
+  string created_at = 7;
+  string updated_at = 8;
+  int32 version = 9;
+  bool is_template = 10;
+}
+
+// Clone a pipeline
+message ClonePipelineRequest {
+  string pipeline_id = 1;
+  string user_id = 2;
+  string new_name = 3;
+  bool clone_nodes = 4;
+}
+
+message ClonePipelineResponse {
+  ExecutionStatus status = 1;
+  string new_pipeline_id = 2;
+  string error_message = 3;
+}
+
+// Node persistence operations
+
+// Save a node to persistent storage
+message SaveNodeRequest {
+  string name = 1;
+  string node_type = 2;
+  map<string, string> config = 3;
+  string owner_id = 4;
+  string access_level = 5;
+  string description = 6;
+  repeated string tags = 7;
+  bool is_template = 8;
+}
+
+message SaveNodeResponse {
+  ExecutionStatus status = 1;
+  string node_id = 2;
+  string error_message = 3;
+}
+
+// Load a node from persistent storage
+message LoadNodeRequest {
+  string node_id = 1;
+  string user_id = 2;
+}
+
+message LoadNodeResponse {
+  ExecutionStatus status = 1;
+  string node_type = 2;
+  map<string, string> config = 3;
+  map<string, string> metadata = 4;
+  string error_message = 5;
+}
+
+// List stored nodes
+message ListStoredNodesRequest {
+  string user_id = 1;
+  string owner_id = 2;
+  string node_type = 3;
+  string access_level = 4;
+  repeated string tags = 5;
+  bool templates_only = 6;
+  int32 limit = 7;
+  int32 offset = 8;
+}
+
+message ListStoredNodesResponse {
+  repeated StoredNodeInfo nodes = 1;
+  int32 total_count = 2;
+}
+
+message StoredNodeInfo {
+  string id = 1;
+  string name = 2;
+  string node_type = 3;
+  string owner_id = 4;
+  string access_level = 5;
+  string description = 6;
+  repeated string tags = 7;
+  string created_at = 8;
+  string updated_at = 9;
+  int32 version = 10;
+  bool is_template = 11;
 } 

@@ -540,4 +540,167 @@ class RemoteExecutionClient:
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
-        await self.disconnect() 
+        await self.disconnect()
+    
+    async def register_pipeline(
+        self,
+        pipeline_name: str,
+        definition: Dict[str, Any],
+        metadata: Optional[Dict[str, str]] = None,
+        dependencies: Optional[List[str]] = None,
+        auto_export: bool = False
+    ) -> str:
+        """
+        Register a pipeline with the remote execution service.
+        
+        Args:
+            pipeline_name: Name of the pipeline
+            definition: Pipeline definition dictionary
+            metadata: Optional metadata
+            dependencies: Optional list of dependencies
+            auto_export: Whether to auto-export the pipeline
+            
+        Returns:
+            Pipeline ID assigned by the remote service
+        """
+        if not self.connected:
+            raise RemoteExecutionError("Not connected to remote service")
+            
+        # Convert definition to proto format
+        def convert_definition_to_proto(def_dict):
+            proto_def = execution_pb2.PipelineDefinition()
+            proto_def.name = def_dict["name"]
+            
+            # Add nodes
+            for node in def_dict.get("nodes", []):
+                proto_node = proto_def.nodes.add()
+                proto_node.node_id = node["node_id"]
+                proto_node.node_type = node["node_type"]
+                proto_node.is_remote = node.get("is_remote", False)
+                proto_node.remote_endpoint = node.get("remote_endpoint", "")
+                proto_node.is_streaming = node.get("is_streaming", False)
+                proto_node.is_source = node.get("is_source", False)
+                proto_node.is_sink = node.get("is_sink", False)
+                
+                # Add config
+                for k, v in node.get("config", {}).items():
+                    proto_node.config[k] = str(v)
+            
+            # Add connections
+            for conn in def_dict.get("connections", []):
+                proto_conn = proto_def.connections.add()
+                proto_conn.from_node = conn["from_node"]
+                proto_conn.to_node = conn["to_node"]
+                proto_conn.output_port = conn.get("output_port", "default")
+                proto_conn.input_port = conn.get("input_port", "default")
+            
+            # Add config and metadata
+            for k, v in def_dict.get("config", {}).items():
+                proto_def.config[k] = str(v)
+            for k, v in def_dict.get("metadata", {}).items():
+                proto_def.metadata[k] = str(v)
+                
+            return proto_def
+        
+        request = execution_pb2.RegisterPipelineRequest(
+            pipeline_name=pipeline_name,
+            definition=convert_definition_to_proto(definition),
+            auto_export=auto_export
+        )
+        
+        # Add metadata
+        if metadata:
+            for k, v in metadata.items():
+                request.metadata[k] = str(v)
+                
+        # Add dependencies
+        if dependencies:
+            request.dependencies.extend(dependencies)
+        
+        try:
+            response = await self.stub.RegisterPipeline(request)
+            
+            if response.status != types_pb2.EXECUTION_STATUS_SUCCESS:
+                raise RemoteExecutionError(f"Pipeline registration failed: {response.error_message}")
+                
+            return response.pipeline_id
+            
+        except grpc.aio.AioRpcError as e:
+            logger.error(f"gRPC error registering pipeline: {e}")
+            raise RemoteExecutionError(f"Failed to register pipeline: {e}") from e
+    
+    async def list_pipelines(
+        self,
+        category: Optional[str] = None,
+        include_definitions: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        List registered pipelines from the remote service.
+        
+        Args:
+            category: Optional category filter
+            include_definitions: Whether to include pipeline definitions
+            
+        Returns:
+            List of pipeline information dictionaries
+        """
+        if not self.connected:
+            raise RemoteExecutionError("Not connected to remote service")
+            
+        request = execution_pb2.ListPipelinesRequest(
+            category=category or "",
+            include_definitions=include_definitions
+        )
+        
+        try:
+            response = await self.stub.ListPipelines(request)
+            
+            pipelines = []
+            for pipeline in response.pipelines:
+                pipeline_info = {
+                    "pipeline_id": pipeline.pipeline_id,
+                    "name": pipeline.name,
+                    "category": pipeline.category,
+                    "description": pipeline.description,
+                    "registered_timestamp": pipeline.registered_timestamp,
+                    "usage_count": pipeline.usage_count,
+                    "metadata": dict(pipeline.metadata) if pipeline.metadata else {}
+                }
+                
+                # Add definition if requested
+                if include_definitions and hasattr(pipeline, 'definition'):
+                    pipeline_info["definition"] = {
+                        "name": pipeline.definition.name,
+                        "nodes": [
+                            {
+                                "node_id": node.node_id,
+                                "node_type": node.node_type,
+                                "config": dict(node.config),
+                                "is_remote": node.is_remote,
+                                "remote_endpoint": node.remote_endpoint,
+                                "is_streaming": node.is_streaming,
+                                "is_source": node.is_source,
+                                "is_sink": node.is_sink
+                            }
+                            for node in pipeline.definition.nodes
+                        ],
+                        "connections": [
+                            {
+                                "from_node": conn.from_node,
+                                "to_node": conn.to_node,
+                                "output_port": conn.output_port,
+                                "input_port": conn.input_port
+                            }
+                            for conn in pipeline.definition.connections
+                        ],
+                        "config": dict(pipeline.definition.config),
+                        "metadata": dict(pipeline.definition.metadata)
+                    }
+                
+                pipelines.append(pipeline_info)
+            
+            return pipelines
+            
+        except grpc.aio.AioRpcError as e:
+            logger.error(f"gRPC error listing pipelines: {e}")
+            raise RemoteExecutionError(f"Failed to list pipelines: {e}") from e 
