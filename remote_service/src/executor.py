@@ -59,12 +59,13 @@ class TaskExecutor:
     Handles execution of SDK nodes and custom tasks.
     """
     
-    def __init__(self, config: ServiceConfig):
+    def __init__(self, config: ServiceConfig, custom_node_registry: Dict[str, type] = None):
         """
         Initialize the task executor.
         
         Args:
             config: Service configuration
+            custom_node_registry: Optional dictionary of custom nodes to register
         """
         self.config = config
         self.logger = logging.getLogger(__name__)
@@ -77,6 +78,10 @@ class TaskExecutor:
         
         # Build node registry from SDK
         self.node_registry = self._build_sdk_node_registry()
+        
+        # Register custom nodes if provided
+        if custom_node_registry:
+            self._register_custom_nodes(custom_node_registry)
         
         self.logger.info(f"TaskExecutor initialized with {len(self.node_registry)} node types")
     
@@ -132,6 +137,26 @@ class TaskExecutor:
             self.logger.warning("SDK not available, no nodes registered")
         
         return registry
+    
+    def _register_custom_nodes(self, custom_node_registry: Dict[str, type]) -> None:
+        """
+        Register custom nodes in the node registry.
+        
+        Args:
+            custom_node_registry: Dictionary mapping node names to node classes
+        """
+        for node_name, node_class in custom_node_registry.items():
+            # Validate that it's a proper node class
+            if not issubclass(node_class, Node):
+                self.logger.warning(f"Skipping {node_name}: not a valid Node subclass")
+                continue
+                
+            # Check for name conflicts
+            if node_name in self.node_registry:
+                self.logger.warning(f"Custom node {node_name} will override SDK node")
+                
+            self.node_registry[node_name] = node_class
+            self.logger.info(f"Registered custom node: {node_name}")
     
     def _get_json_serializer(self):
         """Get primitive JSON serializer."""

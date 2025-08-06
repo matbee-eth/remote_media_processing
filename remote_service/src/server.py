@@ -292,15 +292,16 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
     gRPC servicer implementation for remote execution.
     """
     
-    def __init__(self, config: ServiceConfig):
+    def __init__(self, config: ServiceConfig, custom_executor: TaskExecutor = None):
         """
         Initialize the remote execution servicer.
         
         Args:
             config: Service configuration
+            custom_executor: Optional custom TaskExecutor instance (if None, creates default)
         """
         self.config = config
-        self.executor = TaskExecutor(config)
+        self.executor = custom_executor or TaskExecutor(config)
         self.sandbox_manager = SandboxManager(config)
         self.start_time = time.time()
         self.request_count = 0
@@ -1325,8 +1326,19 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         """
         available_nodes = await self.executor.get_available_nodes(request.category)
         
+        # Convert dictionary list to NodeInfo messages
+        node_info_list = []
+        for node_data in available_nodes:
+            node_info = execution_pb2.NodeInfo(
+                node_type=node_data.get('node_type', ''),
+                category=node_data.get('category', ''),
+                description=node_data.get('description', ''),
+                # Note: parameters field would need proper conversion if used
+            )
+            node_info_list.append(node_info)
+        
         return execution_pb2.ListNodesResponse(
-            available_nodes=available_nodes
+            available_nodes=node_info_list
         )
     
     def _build_metrics(self, start_time: float, result: Any) -> types_pb2.ExecutionMetrics:
@@ -1959,8 +1971,14 @@ class HealthServicer(health_pb2_grpc.HealthServicer):
         )
 
 
-async def serve():
-    """Starts the gRPC server."""
+async def serve(custom_node_registry: Dict[str, type] = None, custom_executor: TaskExecutor = None):
+    """
+    Starts the gRPC server.
+    
+    Args:
+        custom_node_registry: Optional dictionary of custom nodes to register
+        custom_executor: Optional custom TaskExecutor instance
+    """
     # Load configuration
     config = ServiceConfig()
     
@@ -1980,9 +1998,13 @@ async def serve():
         ]
     )
     
+    # Create executor (custom if provided, otherwise create with custom registry)
+    if custom_executor is None and custom_node_registry is not None:
+        custom_executor = TaskExecutor(config, custom_node_registry)
+    
     # Add servicers
     execution_pb2_grpc.add_RemoteExecutionServiceServicer_to_server(
-        RemoteExecutionServicer(config), server
+        RemoteExecutionServicer(config, custom_executor), server
     )
     health_pb2_grpc.add_HealthServicer_to_server(HealthServicer(), server)
     
