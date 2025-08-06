@@ -18,7 +18,13 @@
     "generate-types:watch": "nodemon generate-typescript-types.js",
     "example": "ts-node examples/basic-usage.ts",
     "example:sentiment": "ts-node examples/sentiment-analysis.ts",
-    "example:pipeline": "ts-node examples/pipeline-processing.ts"
+    "example:pipeline": "ts-node examples/pipeline-processing.ts",
+    "test:audio-stream": "node test-audio-stream.js",
+    "test:transcription-stream": "node test-transcription-stream.js",
+    "test:webrtc-stream": "node test-webrtc-pipeline-stream.js",
+    "test:working-stream": "node test-working-stream.js",
+    "test:core-stream": "node test-core-audio-stream.js",
+    "test:direct-stream": "node test-direct-audio-stream.js"
   },
   "repository": {
     "type": "git",

@@ -1797,13 +1797,17 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         request_iterator: AsyncIterable[execution_pb2.StreamPipelineRequest],
         context: grpc.aio.ServicerContext
     ) -> AsyncGenerator[execution_pb2.StreamPipelineResponse, None]:
-        """Stream data through a registered pipeline."""
+        """Stream data through a registered pipeline using GRPCStreamSource."""
         session_id = None
         pipeline_instance = None
         serializer = None
+        grpc_source = None
+        pipeline_task = None
         
         try:
             from remotemedia.core.pipeline_registry import get_global_registry
+            from remotemedia.nodes.grpc_source import GRPCStreamSource
+            from remotemedia.core.pipeline import Pipeline
             
             registry = get_global_registry()
             
@@ -1813,20 +1817,47 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                     init = request.init
                     session_id = f"stream_{init.pipeline_id}_{int(time.time() * 1000)}"
                     
-                    # Get pipeline instance
-                    pipeline_instance = await registry.get_pipeline_instance(init.pipeline_id)
-                    if not pipeline_instance:
+                    # Get original pipeline instance
+                    original_pipeline = await registry.get_pipeline_instance(init.pipeline_id)
+                    if not original_pipeline:
                         yield execution_pb2.StreamPipelineResponse(
                             error=f"Pipeline not found: {init.pipeline_id}"
                         )
                         return
                     
-                    # Initialize pipeline if needed
-                    if not pipeline_instance.is_initialized:
-                        await pipeline_instance.initialize()
+                    # Create a new pipeline with GRPCStreamSource as the first node
+                    pipeline_instance = Pipeline(name=f"grpc_streaming_{original_pipeline.name}")
+                    
+                    # Create and add GRPC source
+                    grpc_source = GRPCStreamSource(
+                        session_id=session_id,
+                        name=f"GRPCSource_{session_id}"
+                    )
+                    pipeline_instance.add_node(grpc_source)
+                    
+                    # Add all nodes from the original pipeline
+                    for node in original_pipeline.nodes:
+                        pipeline_instance.add_node(node)
+                    
+                    # Initialize the new pipeline
+                    await pipeline_instance.initialize()
                     
                     # Set up serializer
                     serializer = self._get_serializer(init.serialization_format)
+                    
+                    # Start pipeline processing in the background
+                    async def pipeline_processor():
+                        try:
+                            async for result in pipeline_instance.process():
+                                if result is not None:
+                                    output_data = serializer.serialize(result)
+                                    yield execution_pb2.StreamPipelineResponse(data=output_data)
+                        except Exception as e:
+                            self.logger.error(f"Pipeline processing error: {e}")
+                            yield execution_pb2.StreamPipelineResponse(error=str(e))
+                    
+                    # We'll collect results from the pipeline processor
+                    pipeline_generator = pipeline_processor()
                     
                     # Create session
                     registry.create_streaming_session(init.pipeline_id, session_id)
@@ -1839,8 +1870,8 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                     yield execution_pb2.StreamPipelineResponse(ack=ack)
                     
                 elif request.HasField("data"):
-                    # Process data through pipeline
-                    if not pipeline_instance or not serializer:
+                    # Add data to the GRPC source
+                    if not grpc_source or not serializer:
                         yield execution_pb2.StreamPipelineResponse(
                             error="Session not initialized"
                         )
@@ -1849,27 +1880,35 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                     # Deserialize input
                     input_data = serializer.deserialize(request.data)
                     
-                    # Process through pipeline
-                    if hasattr(pipeline_instance, 'process_stream'):
-                        # Handle streaming pipeline
-                        async for result in pipeline_instance.process_stream(input_data):
-                            output_data = serializer.serialize(result)
-                            yield execution_pb2.StreamPipelineResponse(data=output_data)
-                    else:
-                        # Handle non-streaming pipeline
-                        result = await pipeline_instance.process(input_data)
-                        output_data = serializer.serialize(result)
-                        yield execution_pb2.StreamPipelineResponse(data=output_data)
+                    # Add data to the GRPC source node
+                    await grpc_source.add_data(input_data)
+                    
+                    # Try to get results from the pipeline
+                    try:
+                        result = await asyncio.wait_for(pipeline_generator.__anext__(), timeout=0.1)
+                        yield result
+                    except (asyncio.TimeoutError, StopAsyncIteration):
+                        # No immediate result, that's fine
+                        pass
                     
                 elif request.HasField("control"):
                     # Handle control messages
                     control = request.control
                     
                     if control.type == execution_pb2.StreamControl.CLOSE:
+                        if grpc_source:
+                            await grpc_source.end_stream()
                         if session_id:
                             registry.close_streaming_session(session_id)
                         if pipeline_instance and pipeline_instance.is_initialized:
                             await pipeline_instance.cleanup()
+                        
+                        # Drain any remaining results
+                        try:
+                            async for result in pipeline_generator:
+                                yield result
+                        except StopAsyncIteration:
+                            pass
                         return
                     
                     elif control.type == execution_pb2.StreamControl.FLUSH:
@@ -1878,11 +1917,19 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
                             for node in pipeline_instance.nodes:
                                 if hasattr(node, 'flush'):
                                     await node.flush()
+                        
+                        # Try to get any flushed results
+                        try:
+                            while True:
+                                result = await asyncio.wait_for(pipeline_generator.__anext__(), timeout=0.1)
+                                yield result
+                        except (asyncio.TimeoutError, StopAsyncIteration):
+                            pass
                     
                     # Send status update
                     status = execution_pb2.StreamPipelineStatus(
                         session_id=session_id or "",
-                        is_active=True
+                        is_active=grpc_source._is_active if grpc_source else False
                     )
                     yield execution_pb2.StreamPipelineResponse(status=status)
                     
@@ -1893,6 +1940,9 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
             )
         finally:
             # Clean up
+            if grpc_source:
+                await grpc_source.end_stream()
+                await grpc_source.cleanup()
             if session_id:
                 registry.close_streaming_session(session_id)
             if pipeline_instance and pipeline_instance.is_initialized:
