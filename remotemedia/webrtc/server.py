@@ -268,10 +268,47 @@ class WebRTCServer:
             )
             await pc.setRemoteDescription(offer)
             
-            # Add audio output track for sending generated audio back to client
-            if connection.pipeline_processor and connection.pipeline_processor.audio_output_track:
-                pc.addTrack(connection.pipeline_processor.audio_output_track)
-                logger.info(f"Added audio output track to connection {connection_id}")
+            # Add output tracks for sending processed media back to client
+            tracks_added = False
+            
+            # Debug pipeline processor state
+            if connection.pipeline_processor:
+                logger.debug(f"Pipeline processor available for {connection_id}")
+                logger.debug(f"Has audio_output_track attr: {hasattr(connection.pipeline_processor, 'audio_output_track')}")
+                if hasattr(connection.pipeline_processor, 'audio_output_track'):
+                    audio_track = connection.pipeline_processor.audio_output_track
+                    logger.debug(f"Audio output track value: {audio_track} (type: {type(audio_track)})")
+            
+            # Try to add audio output track with enhanced validation
+            if (connection.pipeline_processor and 
+                hasattr(connection.pipeline_processor, 'audio_output_track')):
+                audio_track = connection.pipeline_processor.audio_output_track
+                if audio_track is not None:
+                    try:
+                        pc.addTrack(audio_track)
+                        logger.info(f"Added audio output track to connection {connection_id}")
+                        tracks_added = True
+                    except Exception as e:
+                        logger.error(f"Failed to add audio output track: {e}")
+                else:
+                    logger.debug(f"Audio output track is None for connection {connection_id}")
+                
+            # Try to add video output track if available
+            if (connection.pipeline_processor and 
+                hasattr(connection.pipeline_processor, 'video_output_track')):
+                video_track = connection.pipeline_processor.video_output_track
+                if video_track is not None:
+                    try:
+                        pc.addTrack(video_track)
+                        logger.info(f"Added video output track to connection {connection_id}")
+                        tracks_added = True
+                    except Exception as e:
+                        logger.error(f"Failed to add video output track: {e}")
+                else:
+                    logger.debug(f"Video output track is None for connection {connection_id}")
+            
+            if not tracks_added:
+                logger.info(f"No output tracks available for connection {connection_id} - processing only")
             
             # Create answer
             answer = await pc.createAnswer()
@@ -286,7 +323,38 @@ class WebRTCServer:
             logger.info(f"Created answer for connection {connection_id}")
             
         except Exception as e:
+            import traceback
+            import sys
+            
+            # Capture full error context
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            
             logger.error(f"Error handling offer from {connection_id}: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Exception args: {e.args}")
+            logger.error(f"Full traceback:")
+            
+            # Log the complete stack trace
+            tb_lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
+            for line in tb_lines:
+                logger.error(line.rstrip())
+            
+            # Additional context debugging
+            logger.error(f"Connection state at error:")
+            logger.error(f"  - connection_id: {connection_id}")
+            logger.error(f"  - connections keys: {list(self.connections.keys())}")
+            if connection_id in self.connections:
+                conn = self.connections[connection_id]
+                logger.error(f"  - connection object: {conn}")
+                logger.error(f"  - pipeline_processor: {conn.pipeline_processor}")
+                if hasattr(conn, 'pipeline_processor') and conn.pipeline_processor:
+                    pp = conn.pipeline_processor
+                    logger.error(f"  - pipeline_processor type: {type(pp)}")
+                    logger.error(f"  - has audio_output_track: {hasattr(pp, 'audio_output_track')}")
+                    if hasattr(pp, 'audio_output_track'):
+                        logger.error(f"  - audio_output_track value: {pp.audio_output_track}")
+                        logger.error(f"  - audio_output_track type: {type(pp.audio_output_track)}")
+            
             await self._send_signaling_message(connection_id, {
                 "type": "error",
                 "message": str(e)

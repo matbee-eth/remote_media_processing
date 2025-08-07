@@ -12,7 +12,7 @@
 
 import { PipelineClient } from '../dist/src/pipeline-client.js';
 
-async function discoverWebRTCPipeline() {
+async function discoverWebRTCsdPipeline() {
     console.log('🔍 Discovering WebRTC Pipeline...\n');
     
     // Connect to the pipeline service

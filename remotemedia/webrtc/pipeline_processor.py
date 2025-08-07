@@ -182,10 +182,18 @@ class WebRTCStreamSource(Node):
         
     async def _frame_reader(self):
         """Read frames from the WebRTC track and queue them."""
+        frame_count = 0
         try:
             while True:
                 try:
                     frame = await self.track.recv()
+                    frame_count += 1
+                    
+                    # Log frame reception periodically
+                    if frame_count % 30 == 0 or frame_count <= 5:
+                        logger.info(f"📹 WebRTC frame reader: Received frame #{frame_count} from {self.track.kind} track {self.track.id}")
+                        logger.info(f"   📦 Frame type: {type(frame)}, Queue size: {self._frame_queue.qsize()}")
+                    
                     if not self._frame_queue.full():
                         await self._frame_queue.put(frame)
                     else:
@@ -200,25 +208,35 @@ class WebRTCStreamSource(Node):
                     logger.error(f"Error reading frame from track {self.track.id}: {e}")
                     break
         except asyncio.CancelledError:
-            logger.debug(f"Frame reader cancelled for track {self.track.id}")
+            logger.debug(f"Frame reader cancelled for track {self.track.id} after {frame_count} frames")
         
     async def process(self, data_stream=None):
         """Generate frames from the WebRTC track."""
+        processed_count = 0
+        timeout_count = 0
         try:
+            logger.info(f"🚀 WebRTCStreamSource: Starting frame processing for {self.track.kind} track {self.track.id}")
             while True:
                 try:
                     frame = await asyncio.wait_for(self._frame_queue.get(), timeout=1.0)
                     converted_frame = await self._convert_frame(frame)
                     if converted_frame is not None:
-                        logger.debug(f"WebRTCStreamSource: Generated frame from {self.track.kind} track")
+                        processed_count += 1
+                        if processed_count % 30 == 0 or processed_count <= 5:
+                            logger.info(f"🔄 WebRTCStreamSource: Processed frame #{processed_count} from {self.track.kind} track")
                         yield converted_frame
+                    else:
+                        logger.warning(f"⚠️  Frame conversion returned None for {self.track.kind} track")
                 except asyncio.TimeoutError:
+                    timeout_count += 1
+                    if timeout_count % 10 == 0:  # Log every 10 seconds of no frames
+                        logger.debug(f"⏰ WebRTCStreamSource: No frames received for {timeout_count} seconds (queue size: {self._frame_queue.qsize()})")
                     continue
                 except Exception as e:
                     logger.error(f"Error processing frame: {e}")
                     break
         except asyncio.CancelledError:
-            logger.debug(f"Stream source processing cancelled for track {self.track.id}")
+            logger.debug(f"Stream source processing cancelled for track {self.track.id} after {processed_count} frames")
             
     async def _convert_frame(self, frame):
         """Convert WebRTC frame to pipeline format."""
@@ -303,7 +321,7 @@ class WebRTCStreamSource(Node):
             # Convert to numpy array (RGB format)
             video_array = frame.to_ndarray(format='rgb24')
             
-            return {
+            frame_data = {
                 'frame': video_array,
                 'width': frame.width,
                 'height': frame.height,
@@ -313,6 +331,16 @@ class WebRTCStreamSource(Node):
                 'session_id': self.connection_id,
                 'source': 'webrtc'
             }
+            
+            # Log first few video frame conversions
+            if not hasattr(self, '_video_frame_count'):
+                self._video_frame_count = 0
+            self._video_frame_count += 1
+            
+            if self._video_frame_count <= 3 or self._video_frame_count % 60 == 0:
+                logger.info(f"🖼️  Video frame conversion #{self._video_frame_count}: {frame.width}x{frame.height} {video_array.dtype} shape={video_array.shape}")
+            
+            return frame_data
             
         except Exception as e:
             logger.error(f"Error converting video frame: {e}")
@@ -415,19 +443,44 @@ class WebRTCDataChannelNode(Node):
                     yield result
                     
                     # Get the stream index and create a new task for it
-                    stream_idx = tasks.index(task)
-                    tasks[stream_idx] = asyncio.create_task(streams[stream_idx].__anext__())
+                    try:
+                        stream_idx = tasks.index(task)
+                        tasks[stream_idx] = asyncio.create_task(streams[stream_idx].__anext__())
+                    except ValueError:
+                        logger.warning("Task not found in tasks list - possible race condition")
+                        continue
                     
                 except StopAsyncIteration:
                     # Remove completed stream
-                    stream_idx = tasks.index(task)
-                    tasks.remove(task)
-                    streams = streams[:stream_idx] + streams[stream_idx+1:]
+                    try:
+                        stream_idx = tasks.index(task)
+                        tasks.remove(task)
+                        streams = streams[:stream_idx] + streams[stream_idx+1:]
+                    except ValueError:
+                        logger.warning("Task not found in tasks list during StopAsyncIteration")
+                        continue
                 except Exception as e:
+                    import traceback
                     logger.error(f"Error in stream merge: {e}")
-                    stream_idx = tasks.index(task)
-                    tasks.remove(task)
-                    streams = streams[:stream_idx] + streams[stream_idx+1:]
+                    logger.error(f"Exception type: {type(e).__name__}")
+                    logger.error(f"Exception args: {e.args}")
+                    logger.error(f"Stream merge context:")
+                    logger.error(f"  - tasks: {tasks}")
+                    logger.error(f"  - task: {task}")
+                    logger.error(f"  - task in tasks: {task in tasks}")
+                    logger.error(f"  - task type: {type(task)}")
+                    logger.error(f"  - streams count: {len(streams)}")
+                    logger.error("Stream merge traceback:")
+                    for line in traceback.format_exc().split('\n'):
+                        logger.error(line)
+                    
+                    try:
+                        stream_idx = tasks.index(task)
+                        tasks.remove(task)
+                        streams = streams[:stream_idx] + streams[stream_idx+1:]
+                    except ValueError:
+                        logger.warning("Task not found in tasks list during error handling")
+                        continue
 
 
 class WebRTCPipelineProcessor:
@@ -454,8 +507,9 @@ class WebRTCPipelineProcessor:
         if self._initialized:
             return
             
-        # Create audio output track for sending generated audio back to client
-        self.audio_output_track = AudioOutputTrack(sample_rate=24000)
+        # Create audio output track only if pipeline will process audio
+        # For video-only pipelines (like ChAruco), we don't need audio output
+        self.audio_output_track = None  # Will be created later if audio tracks are added
         
         # Add a stream sink to the pipeline for output handling
         self.stream_sink = WebRTCStreamSink(
@@ -498,8 +552,13 @@ class WebRTCPipelineProcessor:
         track_id = f"{track.kind}_{track.id}"
         self.active_tracks[track_id] = track
         
-        # Only process audio tracks for now
-        if track.kind == "audio":
+        # Process both audio and video tracks
+        if track.kind in ["audio", "video"]:
+            # Create audio output track if this is the first audio track
+            if track.kind == "audio" and self.audio_output_track is None:
+                self.audio_output_track = AudioOutputTrack(sample_rate=24000)
+                logger.info(f"Created audio output track for connection {self.connection_id}")
+            
             # Create a stream source for this track
             source = WebRTCStreamSource(
                 track=track,
@@ -530,7 +589,7 @@ class WebRTCPipelineProcessor:
             
             logger.info(f"Added {track.kind} track {track.id} to pipeline for connection {self.connection_id}")
         else:
-            logger.info(f"Ignoring {track.kind} track {track.id} (only audio processing supported)")
+            logger.info(f"Ignoring {track.kind} track {track.id} (unsupported track type)")
         
     async def remove_track(self, track: MediaStreamTrack):
         """Remove a WebRTC track from the pipeline."""
@@ -569,20 +628,26 @@ class WebRTCPipelineProcessor:
         
     async def _process_pipeline(self):
         """Process the pipeline continuously."""
+        result_count = 0
         try:
             # Add the sink node to the end of the pipeline
             self.pipeline.add_node(self.stream_sink)
             
             # Start pipeline processing
             logger.info(f"🚀 Starting pipeline processing for connection {self.connection_id}")
+            logger.info(f"   🔧 Pipeline has {len(self.pipeline.nodes)} nodes: {[node.name for node in self.pipeline.nodes]}")
+            
             async with self.pipeline.managed_execution():
+                logger.info(f"🏃 Pipeline execution started for {self.connection_id}")
                 async for result in self.pipeline.process():
-                    logger.info(f"🔄 Pipeline result for {self.connection_id}: {type(result)}")
+                    result_count += 1
+                    if result_count <= 5 or result_count % 30 == 0:
+                        logger.info(f"🔄 Pipeline result #{result_count} for {self.connection_id}: {type(result)}")
                     
         except asyncio.CancelledError:
-            logger.debug(f"Pipeline processing cancelled for connection {self.connection_id}")
+            logger.debug(f"Pipeline processing cancelled for connection {self.connection_id} after {result_count} results")
         except Exception as e:
-            logger.error(f"Error in pipeline processing for {self.connection_id}: {e}")
+            logger.error(f"Error in pipeline processing for {self.connection_id}: {e}", exc_info=True)
             
     async def _handle_pipeline_output(self, data: Any):
         """Handle output from the pipeline."""
