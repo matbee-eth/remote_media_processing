@@ -4,21 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RemoteMedia Processing SDK - A Python SDK for building distributed audio/video/data processing pipelines with transparent remote offloading capabilities. The SDK enables real-time processing applications that can seamlessly offload computationally intensive tasks to remote execution services.
+RemoteMedia Processing SDK is a Python SDK for building distributed audio/video/data processing pipelines with transparent remote offloading capabilities. The project enables developers to create complex, real-time processing applications that can seamlessly offload computationally intensive tasks to remote execution services.
 
-## Key Commands
+## Key Architecture Components
 
-### Development Setup
-```bash
-# Install core SDK and dependencies
-pip install -e .
+### Core Pipeline System
+- **Pipeline** (`remotemedia/core/pipeline.py`): Manages sequences of processing nodes with async parallel execution using unbounded queues and threaded workers
+- **Node** (`remotemedia/core/node.py`): Base class for all processing steps with optional `RemoteExecutorConfig` for remote execution
+- **RemoteExecutorConfig**: Specifies connection details (host, port, auth, protocol) for remote execution services
 
-# Install development dependencies
-pip install -e ".[dev]"
+### Remote Execution
+- **RemoteExecutionClient** (`remotemedia/remote/client.py`): gRPC client for remote node execution
+- **Code Packaging** (`remotemedia/packaging/`): AST-based dependency analysis and CloudPickle serialization for user-defined code
+- **Remote Service** (`remote_service/`): Docker-based gRPC server for sandboxed code execution
 
-# Install ML dependencies (for advanced processing nodes)
-pip install -e ".[ml]"
-```
+### Node Types
+- **Built-in Nodes** (`remotemedia/nodes/`): Audio, video, transform, calculator, text processing
+- **Audio Nodes**: `AudioTransform`, `AudioBuffer`, `VoiceActivityDetector` (VAD)
+- **ML Nodes**: `UltravoxNode` (speech-to-text), `KokoroTTSNode` (text-to-speech)
+- **WebRTC Integration**: Real-time audio/video streaming with aiortc
+- **Custom Execution**: `CodeExecutorNode` for remote Python code, `SerializedClassExecutorNode` for CloudPickle objects
+- **Streaming Support**: Nodes can be streaming (async generators) or regular (single item processing)
+
+## Development Commands
 
 ### Testing
 ```bash
@@ -31,110 +39,162 @@ pytest tests/test_pipeline.py
 # Run tests matching pattern
 pytest -k "test_remote"
 
-# Run integration tests with remote service
-python tests/test_remote_execution.py --manual
+# Run with verbose output
+pytest -v
 ```
 
 ### Code Quality
 ```bash
-# Format code with Black (line length 79)
-black remotemedia tests
+# Format code with black
+black remotemedia/ tests/
 
-# Type checking
-mypy remotemedia
+# Lint with flake8
+flake8 remotemedia/ tests/
 
-# Linting
-flake8 remotemedia tests
+# Type check with mypy
+mypy remotemedia/
 ```
 
-### Remote Service Operations
+### Building
 ```bash
-# Generate gRPC code (from remote_service directory)
-cd remote_service
-python -m grpc_tools.protoc --proto_path=protos --python_out=src --grpc_python_out=src protos/*.proto
+# Build package
+python -m build
 
-# Run remote service locally
-cd remote_service
-./scripts/run.sh
+# Install in development mode
+pip install -e .
 
-# Run with Docker
-docker-compose up remote-service
+# Install with dev dependencies
+pip install -e ".[dev]"
 
-# Run tests for remote service
-cd remote_service
-./scripts/test.sh
+# Install with ML dependencies
+pip install -e ".[ml]"
 ```
 
-## Architecture Overview
+### Remote Service
+```bash
+# Build Docker image
+cd remote_service && ./scripts/build.sh
 
-### Core Components
+# Run tests
+cd remote_service && ./scripts/test.sh
 
-1. **Pipeline System** (`remotemedia/core/pipeline.py`): Manages sequences of processing nodes with support for both local and remote execution.
+# Start service
+cd remote_service && docker-compose up
+```
 
-2. **Node Framework** (`remotemedia/core/node.py`): Base Node class and RemoteExecutorConfig for all processing units. Nodes can be:
-   - Local SDK nodes (audio, video, transform)
-   - Remote SDK nodes (executed on remote service)
-   - User-defined Python classes (serialized with CloudPickle)
-   - Custom code strings (executed remotely)
+### WebRTC Server
+```bash
+# Run WebRTC server with ML pipeline
+USE_ML=true python examples/webrtc_pipeline_server.py
 
-3. **Remote Execution** (`remotemedia/remote/client.py`): gRPC-based client for offloading node execution to remote services. Supports:
-   - Async execution with streaming
-   - CloudPickle serialization for user objects
-   - Automatic dependency packaging
+# Run basic WebRTC server (no ML)
+python examples/webrtc_pipeline_server.py
 
-4. **Code Packaging** (`remotemedia/packaging/`): AST-based analysis and packaging system that:
-   - Detects local Python file dependencies
-   - Creates deployable archives with dependencies
-   - Integrates with CloudPickle for object serialization
+# Connect with web client
+open http://localhost:8080/webrtc_client.html
+```
 
-### Remote Service Architecture
+## Testing Strategy
 
-The remote execution service (`remote_service/`) is a gRPC server that:
-- Executes SDK nodes and user-defined code in sandboxed environments
-- Handles CloudPickle deserialization and execution
-- Supports streaming for real-time processing
-- Provides health checking and metrics endpoints
+The project has comprehensive test coverage including:
+- Unit tests for individual components
+- Integration tests for pipeline execution
+- Remote execution tests with actual gRPC connections
+- CloudPickle serialization tests
+- Dependency packaging tests with custom libraries
 
-### Key Design Patterns
+Key test files:
+- `test_working_system.py`: Full system integration tests
+- `test_remote_code_execution.py`: Remote Python code execution
+- `test_cloudpickle_execution.py`: Object serialization tests
+- `test_dependency_packaging.py`: AST analysis and packaging
 
-1. **Transparent Remote Offloading**: Nodes can be executed locally or remotely with minimal code changes using RemoteExecutorConfig.
+## Important Implementation Details
 
-2. **Serialization Strategy**: 
-   - JSON for simple data types
-   - CloudPickle for complex Python objects and user-defined classes
-   - AST analysis for dependency detection
+### Pipeline Execution
+- Uses async/await patterns throughout
+- Parallel node execution with worker threads
+- Sentinel-based stream termination
+- Support for node flushing on stream end
 
-3. **Security Model**: Remote execution uses restricted globals and sandboxed environments (configurable via SANDBOX_ENABLED).
+### Remote Code Execution Security
+- Sandboxed execution environment in Docker
+- Restricted globals in remote execution
+- Process-level isolation with resource limits
+- Future plans for microVM isolation (Firecracker/gVisor)
 
-4. **Streaming Support**: Built on gRPC bidirectional streaming for real-time audio/video processing.
+### Data Serialization
+- JSON for simple types
+- CloudPickle for complex Python objects
+- Custom serializers for NumPy arrays and media frames
+- gRPC with Protocol Buffers for remote communication
 
-## Development Workflow
+### Error Handling
+- Custom exceptions in `remotemedia/core/exceptions.py`
+- Comprehensive logging throughout the codebase
+- Error propagation from remote execution back to client
 
-### Adding New Processing Nodes
+## Current Development Phase
 
-1. Create node class inheriting from `Node` in `remotemedia/nodes/`
-2. Implement `process()` method for data transformation
-3. Add to `__init__.py` exports
-4. Create tests in `tests/test_<node_name>.py`
-5. Update examples if applicable
+Phase 4 (WebRTC Real-time Audio Processing) is COMPLETE:
+- ✅ WebRTC server with aiortc integration
+- ✅ Real-time audio streaming with proper frame timing
+- ✅ Voice Activity Detection (VAD) with speech segmentation
+- ✅ Speech-to-speech pipeline (Ultravox + Kokoro TTS)
+- ✅ VAD-triggered buffering with pre-speech context
+- ✅ WebRTC audio output with 20ms frame synchronization
 
-### Testing Remote Execution
+Phase 3 (Advanced Offloading for User-Defined Python Code) is COMPLETE:
+- ✅ Remote Python code execution with CloudPickle
+- ✅ AST-based dependency analysis for local imports
+- ✅ Code and dependency packaging system
+- ✅ Secure sandboxed execution environment
+- ✅ Full test coverage (7/7 scenarios passing)
 
-1. Start remote service: `cd remote_service && ./scripts/run.sh`
-2. Run integration tests: `pytest tests/test_remote_execution.py`
-3. Check logs in `remote_service/logs/`
+## Common Development Tasks
 
-### Debugging Tips
+### Adding a New Node Type
+1. Create new class inheriting from `Node` in `remotemedia/nodes/`
+2. Implement `process()` method (can be sync or async)
+3. Optional: Add `flush()` method for stateful nodes
+4. Optional: Set `is_streaming = True` for streaming nodes
+5. Add tests in `tests/`
 
-- Set `LOG_LEVEL=DEBUG` for verbose logging
-- Use `SANDBOX_ENABLED=false` for easier debugging (development only)
-- Check gRPC connection with health check: `python remote_service/src/health_check.py`
-- View streaming data flow with examples in `examples/remote_streaming_pipeline.py`
+### Making a Node Remotable
+1. Ensure node is serializable (no file handles, sockets, etc.)
+2. Add to remote service's node registry if SDK-defined
+3. For user nodes, use `SerializedClassExecutorNode` with CloudPickle
 
-## Important Files
+### Debugging Remote Execution
+1. Check remote service logs: `docker-compose logs -f`
+2. Enable debug logging: Set log level in `remotemedia/utils/logging.py`
+3. Use `RemoteExecutionClient` directly for testing
+4. Inspect serialized payloads and gRPC messages
 
-- `remotemedia/nodes/serialized_class_executor.py`: Executes CloudPickle-serialized user classes
-- `remotemedia/packaging/dependency_analyzer.py`: AST-based import detection
-- `remote_service/src/server.py`: Main gRPC server implementation
-- `tests/test_cloudpickle_execution.py`: CloudPickle execution test scenarios
-- `examples/remote_object_streaming_audio.py`: Real-world streaming example
+### WebRTC Audio Pipeline Architecture
+
+The WebRTC integration implements a complete speech-to-speech system:
+
+1. **Audio Input**: WebRTC client captures microphone audio
+2. **Audio Processing**: `AudioTransform` resamples to 16kHz for ML models
+3. **Voice Activity Detection**: `VoiceActivityDetector` identifies speech vs silence
+4. **Speech Buffering**: `VADTriggeredBuffer` accumulates complete utterances:
+   - Maintains 1s rolling pre-speech buffer
+   - Waits for ≥1s of speech + 500ms silence before triggering
+   - Includes pre-speech context in output
+5. **Speech Recognition**: `UltravoxImmediateProcessor` processes complete utterances:
+   - Bypasses internal buffering to prevent accumulation
+   - Clears buffer after each inference
+   - Processes each speech segment individually
+6. **Text-to-Speech**: `KokoroTTSNode` synthesizes response audio
+7. **Audio Output**: `AudioOutputTrack` streams back to WebRTC client:
+   - Splits audio into 20ms frames
+   - Implements proper frame timing (50 FPS)
+   - Uses real-time rate limiting to prevent flooding
+
+### Key WebRTC Components
+
+- **WebRTCServer** (`remotemedia/webrtc/server.py`): Main server with signaling
+- **WebRTCPipelineProcessor** (`remotemedia/webrtc/pipeline_processor.py`): Integrates WebRTC with pipeline
+- **AudioOutputTrack**: Custom aiortc track with frame timing and PTS management
+- **VADTriggeredBuffer**: Smart buffering for complete speech segments
