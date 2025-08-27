@@ -29,3 +29,8 @@ prometheus-client>=0.15.0
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
 pytest-grpc>=0.8.0 
+
+librosa>=0.10.0
+
+# RunPod integration (optional but needed for imports)
+runpod>=1.7.0
