@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from remotemedia.core.pipeline import Pipeline
 from remotemedia.nodes.audio import VoiceActivityDetector
 from remotemedia.nodes import PassThroughNode
+from remotemedia.nodes.source import MediaReaderNode, AudioTrackSource
 
 
 class AudioGenerator(PassThroughNode):
@@ -103,7 +104,7 @@ async def test_vad_passthrough():
         async for result in pipeline.process():
             pass  # Just consume the stream
     
-    print("\n✓ Passthrough test completed\n")
+    print("\n[OK] Passthrough test completed\n")
 
 
 async def test_vad_filter():
@@ -146,13 +147,105 @@ async def test_vad_filter():
         async for result in pipeline.process():
             pass
     
-    print(f"\n✓ Filter test completed. Received {counter.count} speech chunks out of 10 total\n")
+    print(f"\n[OK] Filter test completed. Received {counter.count} speech chunks out of 10 total\n")
+
+
+async def test_vad_wav_passthrough():
+    """Test VAD in passthrough mode with real WAV file."""
+    print("\n=== Testing VAD with WAV File (Passthrough Mode) ===\n")
+    
+    # Path to the demo WAV file
+    wav_path = str(Path(__file__).parent.parent / "media-files" / "transcribe_demo.wav")
+    
+    pipeline = Pipeline()
+    
+    # Media reader and audio track source
+    pipeline.add_node(MediaReaderNode(wav_path, name="MediaReader"))
+    pipeline.add_node(AudioTrackSource(name="AudioTrackSource"))
+    
+    # VAD in passthrough mode
+    vad = VoiceActivityDetector(
+        frame_duration_ms=30,
+        energy_threshold=0.01,  # Lower threshold for real audio
+        speech_threshold=0.3,
+        filter_mode=False,
+        include_metadata=True,
+        name="VAD"
+    )
+    vad.is_streaming = True
+    pipeline.add_node(vad)
+    
+    # Logger
+    pipeline.add_node(LoggerNode(name="Logger"))
+    
+    async with pipeline.managed_execution():
+        chunk_count = 0
+        async for result in pipeline.process():
+            chunk_count += 1
+            if chunk_count >= 50:  # Limit output for demo
+                break
+    
+    print(f"\n[OK] WAV passthrough test completed (processed {chunk_count} chunks)\n")
+
+
+async def test_vad_wav_filter():
+    """Test VAD in filter mode with real WAV file."""
+    print("\n=== Testing VAD with WAV File (Filter Mode) ===\n")
+    
+    # Path to the demo WAV file
+    wav_path = str(Path(__file__).parent.parent / "media-files" / "transcribe_demo.wav")
+    
+    pipeline = Pipeline()
+    
+    # Media reader and audio track source
+    pipeline.add_node(MediaReaderNode(wav_path, name="MediaReader"))
+    pipeline.add_node(AudioTrackSource(name="AudioTrackSource"))
+    
+    # VAD in filter mode
+    vad = VoiceActivityDetector(
+        frame_duration_ms=30,
+        energy_threshold=0.01,  # Lower threshold for real audio
+        speech_threshold=0.3,
+        filter_mode=True,
+        name="VADFilter"
+    )
+    vad.is_streaming = True
+    pipeline.add_node(vad)
+    
+    # Counter node
+    class CounterNode(PassThroughNode):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.is_streaming = True
+            self.count = 0
+        
+        async def process(self, data_stream):
+            async for data in data_stream:
+                self.count += 1
+                print(f"Received speech chunk {self.count}")
+                yield data
+                if self.count >= 20:  # Limit output for demo
+                    break
+    
+    counter = CounterNode(name="Counter")
+    pipeline.add_node(counter)
+    
+    async with pipeline.managed_execution():
+        async for result in pipeline.process():
+            pass
+    
+    print(f"\n[OK] WAV filter test completed. Detected {counter.count} speech chunks\n")
 
 
 async def main():
     """Run all tests."""
+    print("Running synthetic audio tests...")
     await test_vad_passthrough()
     await test_vad_filter()
+    
+    print("Running real WAV file tests...")
+    await test_vad_wav_passthrough()
+    await test_vad_wav_filter()
 
 
 if __name__ == "__main__":
