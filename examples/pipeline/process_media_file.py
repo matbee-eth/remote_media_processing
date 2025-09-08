@@ -18,7 +18,7 @@ from remotemedia.utils import setup_logging
 # --- Configuration ---
 # You may need to change this path to a media file on your system.
 # For example, a .mp4 or .mov file with audio and video.
-MEDIA_SOURCE_PATH = "examples/media-files/BigBuckBunny_320x180.mp4"
+MEDIA_SOURCE_PATH = "../media-files/BigBuckBunny_320x180.mp4"
 LOG_LEVEL = "INFO"
 
 
@@ -41,12 +41,18 @@ async def main():
             print(f"\nProcessing media stream from '{MEDIA_SOURCE_PATH}'...")
             
             frame_count = 0
+            max_frames = 5  # Limit to 5 frames for demo
             async for processed_data in pipeline.process():
                 if processed_data.get('audio') is not None:
                     logging.info(f"Processed Audio Frame")
                 if processed_data.get('video') is not None:
                     logging.info(f"Processed Video Frame")
                 frame_count += 1
+                
+                # Break after processing max_frames for demo purposes
+                if frame_count >= max_frames:
+                    print(f"\nReached demo limit of {max_frames} frames")
+                    break
 
             print(f"\nFinished processing. Total frames processed: {frame_count}")
             

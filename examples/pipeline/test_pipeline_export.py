@@ -41,7 +41,7 @@ async def create_and_export_basic_pipeline():
     # Export the pipeline definition
     definition = pipeline.export_definition()
     
-    print("📦 Exported Pipeline Definition:")
+    print(" Exported Pipeline Definition:")
     print(json.dumps(definition, indent=2))
     
     return pipeline, definition
@@ -76,7 +76,7 @@ async def create_calculator_pipeline():
     # Export definition
     definition = pipeline.export_definition()
     
-    print("📦 Exported Calculator Pipeline:")
+    print(" Exported Calculator Pipeline:")
     print(f"  - Nodes: {len(definition['nodes'])}")
     print(f"  - Connections: {len(definition['connections'])}")
     print(f"  - Dependencies: {definition['dependencies']}")
@@ -105,7 +105,7 @@ async def create_text_processing_pipeline():
     # Export definition
     definition = pipeline.export_definition()
     
-    print("📦 Exported Text Pipeline:")
+    print(" Exported Text Pipeline:")
     print(f"  - Pipeline: {definition['name']}")
     print(f"  - Nodes: {[n['node_type'] for n in definition['nodes']]}")
     print(f"  - Metadata: {definition['metadata']}")
@@ -143,10 +143,10 @@ async def test_pipeline_registry():
         )
         
         registered_ids.append(pipeline_id)
-        print(f"✅ Registered: {definition['name']} -> {pipeline_id}")
+        print(f" Registered: {definition['name']} -> {pipeline_id}")
     
     # List all registered pipelines
-    print("\n📋 Listing all registered pipelines:")
+    print("\n Listing all registered pipelines:")
     all_pipelines = registry.list_pipelines(include_definitions=False)
     for p in all_pipelines:
         print(f"  - {p['name']} ({p['pipeline_id']})")
@@ -155,7 +155,7 @@ async def test_pipeline_registry():
     
     # Get detailed info for one pipeline
     if registered_ids:
-        print(f"\n🔍 Getting details for {registered_ids[0]}:")
+        print(f"\n Getting details for {registered_ids[0]}:")
         info = registry.get_pipeline_info(
             registered_ids[0],
             include_definition=True,
@@ -167,7 +167,7 @@ async def test_pipeline_registry():
             print(f"  Dependencies: {info['dependencies']}")
     
     # Test pipeline execution
-    print("\n🚀 Testing pipeline execution:")
+    print("\nTesting pipeline execution:")
     calc_pipeline_id = registered_ids[1]  # Calculator pipeline
     
     test_input = {
@@ -186,7 +186,7 @@ async def test_pipeline_registry():
         print(f"  Execution error: {e}")
     
     # Test creating pipeline from definition
-    print("\n🔄 Testing pipeline recreation from definition:")
+    print("\n Testing pipeline recreation from definition:")
     if all_pipelines:
         first_def = all_pipelines[0]['definition'] if 'definition' in all_pipelines[0] else None
         if not first_def:
@@ -199,14 +199,14 @@ async def test_pipeline_registry():
         
         if first_def:
             recreated = await Pipeline.from_definition(first_def)
-            print(f"  ✅ Successfully recreated pipeline: {recreated.name}")
+            print(f"   Successfully recreated pipeline: {recreated.name}")
             print(f"  Nodes: {[node.name for node in recreated.nodes]}")
     
     # Clean up
-    print("\n🧹 Cleaning up registered pipelines:")
+    print("\n Cleaning up registered pipelines:")
     for pipeline_id in registered_ids:
         success = await registry.unregister_pipeline(pipeline_id)
-        print(f"  {'✅' if success else '❌'} Unregistered: {pipeline_id}")
+        print(f"  {'' if success else ''} Unregistered: {pipeline_id}")
     
     return True
 
@@ -215,7 +215,7 @@ async def demonstrate_nodejs_integration():
     """Show how Node.js clients would use these pipelines."""
     print("\n=== Node.js Integration Example ===\n")
     
-    print("📝 JavaScript clients can now:")
+    print(" JavaScript clients can now:")
     print("  1. Connect to the gRPC service at localhost:50052")
     print("  2. List available pipelines with ListPipelines()")
     print("  3. Execute pipelines with ExecutePipeline()")
@@ -251,7 +251,7 @@ async def main():
     # Set up logging
     setup_logging(level="INFO")
     
-    print("🚀 RemoteMedia Pipeline Export and Registration Test")
+    print("RemoteMedia Pipeline Export and Registration Test")
     print("=" * 60)
     
     try:
@@ -266,12 +266,12 @@ async def main():
         # Show Node.js integration
         await demonstrate_nodejs_integration()
         
-        print("\n✅ All tests completed successfully!")
+        print("\n All tests completed successfully!")
         print("\nPipelines are now exportable and can be registered for use by JavaScript clients.")
         print("The gRPC service at localhost:50052 will serve these pipelines to any connected client.")
         
     except Exception as e:
-        print(f"\n❌ Test failed: {e}")
+        print(f"\n Test failed: {e}")
         import traceback
         traceback.print_exc()
         return 1

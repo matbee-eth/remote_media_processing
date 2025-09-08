@@ -308,16 +308,20 @@ class Pipeline:
                 )
             tasks.append(task)
 
-        try:
-            # Feeder: Puts data from the input stream into the first queue
+        # Define feeder and consumer as separate async functions
+        async def feeder():
+            """Feeds data from input stream into the first queue."""
             self.logger.info("PIPELINE-FEEDER: Feeder starting.")
-            async for item in input_stream:
-                self.logger.info("PIPELINE-FEEDER: Putting item into first queue.")
-                await queues[0].put(item)
-            await queues[0].put(_SENTINEL)
-            self.logger.info("PIPELINE-FEEDER: Feeder finished.")
+            try:
+                async for item in input_stream:
+                    self.logger.info("PIPELINE-FEEDER: Putting item into first queue.")
+                    await queues[0].put(item)
+            finally:
+                await queues[0].put(_SENTINEL)
+                self.logger.info("PIPELINE-FEEDER: Feeder finished.")
 
-            # Consumer: Yields results from the final queue
+        async def consumer():
+            """Consumes results from the final queue and yields them."""
             final_queue = queues[-1]
             while True:
                 result = await final_queue.get()
@@ -325,6 +329,15 @@ class Pipeline:
                 if result is _SENTINEL:
                     self.logger.info("CONSUMER: Got sentinel, breaking.")
                     break
+                yield result
+
+        # Start feeder task to run concurrently
+        feeder_task = asyncio.create_task(feeder())
+        tasks.append(feeder_task)
+        
+        try:
+            # Consume results as they become available
+            async for result in consumer():
                 yield result
         finally:
             # Ensure all worker tasks are cancelled

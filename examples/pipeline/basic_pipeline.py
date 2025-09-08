@@ -43,8 +43,12 @@ async def main():
     
     try:
         async with pipeline.managed_execution():
-            print(f"\nProcessing data: {test_data}")
-            async for result in pipeline.process(test_data):
+            print(f"\nProcessing single data item: {test_data}")
+            # Need to feed data as a stream
+            async def data_generator():
+                yield test_data
+            
+            async for result in pipeline.process(data_generator()):
                 print(f"Result: {result}")
             
     except Exception as e:
