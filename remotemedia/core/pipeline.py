@@ -17,6 +17,7 @@ from .exceptions import PipelineError, NodeError
 from .types import _SENTINEL
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 # A unique object to represent an empty item that should be ignored by nodes.
 _EMPTY = object()
@@ -41,7 +42,7 @@ class Pipeline:
         self.name = name or f"Pipeline_{id(self)}"
         self.nodes: List[Node] = []
         self._is_initialized = False
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logger.getChild(self.__class__.__name__)
 
         if nodes:
             for node in nodes:

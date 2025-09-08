@@ -59,22 +59,6 @@ class PrintNode(PassThroughNode):
             print(f"\n>> ULTRAVOX RESPONSE: {data[0] if isinstance(data, tuple) else data}\n")
             yield data
 
-
-async def create_dummy_audio_file(filepath: str, duration_s: int = 5, sample_rate: int = 44100):
-    """Creates a dummy audio file with a sine wave for testing."""
-    if os.path.exists(filepath):
-        return
-    logging.info(f"Creating dummy audio file at '{filepath}'...")
-    t = np.linspace(0., float(duration_s), int(sample_rate * duration_s))
-    amplitude = np.iinfo(np.int16).max * 0.5
-    # A simple spoken phrase might be "hello world", let's simulate that with two tones.
-    data1 = amplitude * np.sin(2. * np.pi * 440. * t[:len(t)//2])
-    data2 = amplitude * np.sin(2. * np.pi * 880. * t[len(t)//2:])
-    data = np.concatenate([data1, data2])
-    await asyncio.to_thread(sf.write, filepath, data.astype(np.int16), sample_rate)
-    logging.info("Dummy audio file created.")
-
-
 async def main():
     """
     Main function to set up and run the remote Ultravox pipeline.
@@ -83,7 +67,6 @@ async def main():
     logger.info("--- Running Remote Ultravox TTS ---")
 
     dummy_audio_path = "examples/media-files/transcribe_demo.wav"
-    await create_dummy_audio_file(dummy_audio_path)
 
     pipeline = Pipeline()
 

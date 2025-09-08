@@ -50,19 +50,6 @@ class PrintNode(PassThroughNode):
         print(f"REMOTE TRANSCRIPTION: {data[0]}")
         yield data
 
-
-async def create_dummy_audio_file(filepath: str, duration_s: int = 10, sample_rate: int = 44100):
-    """Creates a dummy audio file with a sine wave for testing."""
-    if os.path.exists(filepath):
-        return
-    logging.info(f"Creating dummy audio file at '{filepath}'...")
-    t = np.linspace(0., float(duration_s), int(sample_rate * duration_s))
-    amplitude = np.iinfo(np.int16).max * 0.5
-    data = amplitude * np.sin(2. * np.pi * 440. * t)
-    await asyncio.to_thread(sf.write, filepath, data.astype(np.int16), sample_rate)
-    logging.info("Dummy audio file created.")
-
-
 async def main():
     """
     Main function to run the remote Whisper transcription example.
