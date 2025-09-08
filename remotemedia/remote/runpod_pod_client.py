@@ -39,12 +39,33 @@ class RunPodPodConfig:
     deploy_timeout: int = 300  # 5 minutes
     auto_terminate: bool = False  # Keep pod running by default
     
+    # Auto-suspend settings
+    auto_suspend: bool = True  # Auto-suspend pod when idle
+    idle_timeout: int = 300  # 5 minutes idle before suspend
+    auto_resume: bool = True  # Auto-resume pod when needed
+    
     # Advanced settings
-    environment_vars: Dict[str, str] = field(default_factory=lambda: {
-        "GRPC_PORT": "50051",
-        "LOG_LEVEL": "INFO",
-        "PYTHONUNBUFFERED": "1"
-    })
+    environment_vars: Dict[str, str] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        """Set up environment variables including idle timeout."""
+        # Default environment variables
+        default_env = {
+            "GRPC_PORT": "50051",
+            "LOG_LEVEL": "INFO",
+            "PYTHONUNBUFFERED": "1"
+        }
+        
+        # Add idle timeout if auto-suspend is enabled
+        if self.auto_suspend and self.idle_timeout > 0:
+            default_env["IDLE_TIMEOUT"] = str(self.idle_timeout)
+            default_env["RUNPOD_API_KEY"] = self.api_key
+            default_env["RUNPOD_POD_NAME"] = self.pod_name
+        
+        # Merge with user-provided environment variables
+        for key, value in default_env.items():
+            if key not in self.environment_vars:
+                self.environment_vars[key] = value
 
 
 class RunPodPodManager:
@@ -56,11 +77,40 @@ class RunPodPodManager:
         runpod.api_key = config.api_key
         self.pod_id: Optional[str] = None
         self.connection_info: Optional[Tuple[str, int]] = None
+        self.last_activity_time: float = time.time()
+        self.is_suspended: bool = False
+        self._idle_check_task: Optional[asyncio.Task] = None
         logger.debug(f"RunPod API key set, length: {len(config.api_key) if config.api_key else 0}")
         
+    async def find_existing_pod(self) -> Optional[str]:
+        """
+        Find an existing pod with the same name.
+        
+        Returns:
+            Pod ID if found, None otherwise
+        """
+        try:
+            pods = await asyncio.to_thread(runpod.get_pods)
+            for pod in pods:
+                if pod.get('name') == self.config.pod_name:
+                    status = pod.get('desiredStatus', '')
+                    pod_id = pod.get('id')
+                    logger.info(f"Found existing pod '{self.config.pod_name}' with ID {pod_id}, status: {status}")
+                    
+                    if status in ['RUNNING', 'EXITED']:
+                        return pod_id
+                    elif status == 'STOPPED':
+                        self.is_suspended = True
+                        return pod_id
+            return None
+        except Exception as e:
+            logger.warning(f"Error checking for existing pods: {e}")
+            return None
+    
     async def deploy_pod(self) -> Tuple[str, int]:
         """
         Deploy the gRPC service as a RunPod Pod and return connection details.
+        Will reuse existing pod if found.
         
         Returns:
             Tuple of (host, port) for gRPC connection
@@ -68,7 +118,31 @@ class RunPodPodManager:
         Raises:
             RemoteExecutionError: If deployment fails
         """
-        logger.info(f"Deploying RunPod Pod: {self.config.pod_name}")
+        # Check for existing pod first
+        existing_pod_id = await self.find_existing_pod()
+        if existing_pod_id:
+            self.pod_id = existing_pod_id
+            logger.info(f"Reusing existing pod: {self.pod_id}")
+            
+            if self.is_suspended:
+                # Resume the suspended pod
+                return await self.resume_pod()
+            else:
+                # Get connection info for running pod
+                try:
+                    host, port = await self._get_connection_info()
+                    self.connection_info = (host, port)
+                    
+                    # Start idle monitoring if configured
+                    self.start_idle_monitoring()
+                    
+                    logger.info(f"Connected to existing pod at {host}:{port}")
+                    return host, port
+                except Exception as e:
+                    logger.warning(f"Failed to connect to existing pod: {e}, creating new pod")
+                    # Fall through to create new pod
+        
+        logger.info(f"Deploying new RunPod Pod: {self.config.pod_name}")
         
         try:
             # Create the pod
@@ -92,6 +166,9 @@ class RunPodPodManager:
             # Get connection info
             host, port = await self._get_connection_info()
             self.connection_info = (host, port)
+            
+            # Start idle monitoring if configured
+            self.start_idle_monitoring()
             
             logger.info(f"Pod ready at {host}:{port}")
             return host, port
@@ -202,10 +279,55 @@ class RunPodPodManager:
                     logger.debug(f"Attempt {attempt + 1} failed: {e}")
                     await asyncio.sleep(10)
     
+    async def suspend_pod(self) -> None:
+        """Suspend (stop) the running pod to save costs."""
+        if not self.pod_id or self.is_suspended:
+            return
+            
+        try:
+            logger.info(f"Suspending pod {self.pod_id}")
+            await asyncio.to_thread(runpod.stop_pod, self.pod_id)
+            self.is_suspended = True
+            logger.info("Pod suspended successfully")
+        except Exception as e:
+            logger.error(f"Failed to suspend pod: {e}")
+    
+    async def resume_pod(self) -> Tuple[str, int]:
+        """Resume (restart) a suspended pod."""
+        if not self.pod_id or not self.is_suspended:
+            if self.connection_info:
+                return self.connection_info
+            raise RuntimeError("Pod not suspended or no pod ID available")
+            
+        try:
+            logger.info(f"Resuming pod {self.pod_id}")
+            # RunPod resume_pod requires gpu_count parameter
+            await asyncio.to_thread(runpod.resume_pod, self.pod_id, 1)
+            self.is_suspended = False
+            
+            # Wait for pod to be ready again
+            await self._wait_for_pod_ready()
+            
+            # Get new connection info (might have changed)
+            host, port = await self._get_connection_info()
+            self.connection_info = (host, port)
+            
+            logger.info(f"Pod resumed at {host}:{port}")
+            return host, port
+            
+        except Exception as e:
+            logger.error(f"Failed to resume pod: {e}")
+            raise RemoteExecutionError(f"Pod resume failed: {e}") from e
+    
     async def terminate_pod(self) -> None:
         """Terminate the running pod."""
         if not self.pod_id:
             return
+            
+        # Cancel idle check if running
+        if self._idle_check_task:
+            self._idle_check_task.cancel()
+            self._idle_check_task = None
             
         try:
             logger.info(f"Terminating pod {self.pod_id}")
@@ -218,6 +340,48 @@ class RunPodPodManager:
         """Clean up pod on failure."""
         if self.config.auto_terminate:
             await self.terminate_pod()
+    
+    def mark_activity(self) -> None:
+        """Mark that the pod was used (reset idle timer)."""
+        self.last_activity_time = time.time()
+        logger.debug(f"Activity marked at {self.last_activity_time}")
+    
+    async def _idle_check_loop(self) -> None:
+        """Background task to check for idle timeout and auto-suspend."""
+        if not self.config.auto_suspend:
+            return
+            
+        logger.info(f"Starting idle check loop with {self.config.idle_timeout}s timeout")
+        
+        while True:
+            try:
+                await asyncio.sleep(30)  # Check every 30 seconds
+                
+                if self.is_suspended:
+                    continue
+                    
+                idle_time = time.time() - self.last_activity_time
+                logger.debug(f"Pod idle for {idle_time:.1f}s")
+                
+                if idle_time > self.config.idle_timeout:
+                    logger.info(f"Pod idle for {idle_time:.1f}s, suspending...")
+                    await self.suspend_pod()
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in idle check loop: {e}")
+                await asyncio.sleep(60)  # Wait longer on error
+    
+    def start_idle_monitoring(self) -> None:
+        """Start monitoring for idle timeout."""
+        # Only do client-side idle monitoring if server-side idle timeout is not configured
+        if (self.config.auto_suspend and not self._idle_check_task and 
+            self.config.idle_timeout == 0):  # Server-side idle timeout disabled
+            logger.info("Starting client-side idle monitoring (server-side disabled)")
+            self._idle_check_task = asyncio.create_task(self._idle_check_loop())
+        elif self.config.auto_suspend and self.config.idle_timeout > 0:
+            logger.info(f"Skipping client-side idle monitoring (server-side {self.config.idle_timeout}s enabled)")
 
 
 class RunPodPodRemoteExecutorConfig(RemoteExecutorConfig):
@@ -235,6 +399,9 @@ class RunPodPodRemoteExecutorConfig(RemoteExecutorConfig):
         gpu_type: str = "RTX A4000", 
         image: str = "acidhax/remotemedia-service:latest",
         auto_terminate: bool = False,
+        auto_suspend: bool = True,
+        idle_timeout: int = 300,
+        auto_resume: bool = True,
         deploy_timeout: int = 300,
         **kwargs
     ):
@@ -247,6 +414,9 @@ class RunPodPodRemoteExecutorConfig(RemoteExecutorConfig):
             gpu_type: GPU type to use
             image: Docker image containing gRPC service
             auto_terminate: Whether to auto-terminate pod on cleanup
+            auto_suspend: Whether to auto-suspend pod when idle
+            idle_timeout: Seconds of inactivity before auto-suspend
+            auto_resume: Whether to auto-resume pod when needed
             deploy_timeout: Timeout for pod deployment
             **kwargs: Additional RemoteExecutorConfig arguments
         """
@@ -264,6 +434,9 @@ class RunPodPodRemoteExecutorConfig(RemoteExecutorConfig):
             gpu_type=gpu_type,
             image=image,
             auto_terminate=auto_terminate,
+            auto_suspend=auto_suspend,
+            idle_timeout=idle_timeout,
+            auto_resume=auto_resume,
             deploy_timeout=deploy_timeout
         )
         
@@ -296,9 +469,25 @@ class RunPodPodRemoteExecutorConfig(RemoteExecutorConfig):
         if self.pod_manager and self.runpod_config.auto_terminate:
             await self.pod_manager.terminate_pod()
     
+    async def suspend(self) -> None:
+        """Manually suspend the pod to save costs."""
+        if self.pod_manager:
+            await self.pod_manager.suspend_pod()
+    
+    async def resume(self) -> Tuple[str, int]:
+        """Manually resume a suspended pod."""
+        if not self.pod_manager:
+            raise RuntimeError("No pod manager available")
+        return await self.pod_manager.resume_pod()
+    
     @property
     def provider(self) -> str:
         return "runpod-pod"
+    
+    @property
+    def is_suspended(self) -> bool:
+        """Check if the pod is currently suspended."""
+        return self.pod_manager.is_suspended if self.pod_manager else False
 
 
 class RunPodPodRemoteExecutionClient(RemoteExecutionClient):
@@ -320,8 +509,15 @@ class RunPodPodRemoteExecutionClient(RemoteExecutionClient):
         """Deploy the RunPod Pod and establish gRPC connection."""
         logger.info("Deploying RunPod Pod and establishing connection...")
         
-        # Deploy the pod
-        host, port = await self.runpod_config.deploy()
+        # Deploy the pod (or resume if suspended)
+        if self.runpod_config.pod_manager and self.runpod_config.pod_manager.is_suspended:
+            if self.runpod_config.runpod_config.auto_resume:
+                logger.info("Pod is suspended, resuming...")
+                host, port = await self.runpod_config.pod_manager.resume_pod()
+            else:
+                raise RemoteExecutionError("Pod is suspended and auto_resume is disabled")
+        else:
+            host, port = await self.runpod_config.deploy()
         
         # Create and connect the underlying gRPC client
         grpc_config = RemoteExecutorConfig(
@@ -346,9 +542,53 @@ class RunPodPodRemoteExecutionClient(RemoteExecutionClient):
         
         await self.runpod_config.cleanup()
     
+    def _mark_activity(self):
+        """Mark activity on the pod manager."""
+        if self.runpod_config.pod_manager:
+            self.runpod_config.pod_manager.mark_activity()
+    
+    async def execute_node(self, *args, **kwargs):
+        """Execute a node remotely with activity tracking."""
+        self._mark_activity()
+        if not self._grpc_client:
+            await self.connect()
+        return await self._grpc_client.execute_node(*args, **kwargs)
+    
+    async def stream_node(self, *args, **kwargs):
+        """Stream from a node remotely with activity tracking."""
+        self._mark_activity()
+        if not self._grpc_client:
+            await self.connect()
+        return await self._grpc_client.stream_node(*args, **kwargs)
+    
+    async def stream_object(self, *args, **kwargs):
+        """Stream from an object remotely with activity tracking."""
+        self._mark_activity()
+        if not self._grpc_client:
+            await self.connect()
+        # Don't await - stream_object returns an AsyncGenerator
+        async for result in self._grpc_client.stream_object(*args, **kwargs):
+            yield result
+    
+    async def execute_object_method(self, *args, **kwargs):
+        """Execute an object method remotely with activity tracking."""
+        self._mark_activity()
+        if not self._grpc_client:
+            await self.connect()
+        return await self._grpc_client.execute_object_method(*args, **kwargs)
+    
+    async def execute_custom_task(self, *args, **kwargs):
+        """Execute a custom task remotely with activity tracking."""
+        self._mark_activity()
+        if not self._grpc_client:
+            await self.connect()
+        return await self._grpc_client.execute_custom_task(*args, **kwargs)
+    
     # Delegate all other methods to the underlying gRPC client
     def __getattr__(self, name):
         if self._grpc_client:
+            # Mark activity for any method call
+            self._mark_activity()
             return getattr(self._grpc_client, name)
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}' (client not connected)")
 

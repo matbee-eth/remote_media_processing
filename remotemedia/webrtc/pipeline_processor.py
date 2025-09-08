@@ -17,7 +17,6 @@ import time
 
 from ..core.pipeline import Pipeline
 from ..core.node import Node
-from ..nodes.source import AudioTrackSource
 
 logger = logging.getLogger(__name__)
 

@@ -138,15 +138,18 @@ async def main(api_key: str = None, gpu_type: str = "RTX A4000"):
     logger.info(f"API Key: {api_key[:8]}...")
     logger.info(f"GPU Type: {gpu_type}")
     
-    # Configure RunPod Pod
+    # Configure RunPod Pod with auto-suspend
     runpod_config = RunPodPodRemoteExecutorConfig(
         api_key=api_key,
         pod_name="remotemedia-vad",
         gpu_type=gpu_type,
         image="acidhax/remotemedia-service:latest",  # Built from Dockerfile.simple with ML deps
-        auto_terminate=True,  # Clean up after processing
-        deploy_timeout=600,   # 10 minutes for deployment
-        timeout=120.0         # 2 minutes for individual operations
+        auto_terminate=False,  # Keep pod alive
+        auto_suspend=True,     # Auto-suspend when idle
+        idle_timeout=300,      # 5 minutes idle timeout
+        auto_resume=True,      # Auto-resume when needed
+        deploy_timeout=600,    # 10 minutes for deployment
+        timeout=120.0          # 2 minutes for individual operations
     )
     
     logger.info(f"RunPod Config: {runpod_config.provider}, GPU: {runpod_config.runpod_config.gpu_type}")

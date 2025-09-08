@@ -2,17 +2,22 @@
 Higgs Audio TTS Node for high-quality text-to-speech synthesis.
 """
 
+import asyncio
 import logging
 import numpy as np
 from typing import Any, AsyncGenerator, Optional, Union, Tuple, List, Dict
-import asyncio
-import torch
+import _asyncio
 
 from ...core.node import Node
 from ...core.exceptions import NodeError
 
 logger = logging.getLogger(__name__)
 
+try:
+    import torchaudio
+    import torch
+except ImportError as e:
+    logger.warning(f"Higgs Audio TTS: Torch or torchaudio not found: {e}")
 
 class HiggsAudioTTSNode(Node):
     """
@@ -76,7 +81,6 @@ class HiggsAudioTTSNode(Node):
             try:
                 from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine
                 from boson_multimodal.data_types import ChatMLSample, Message
-                import torchaudio
                 self._ChatMLSample = ChatMLSample
                 self._Message = Message
                 self._torchaudio = torchaudio

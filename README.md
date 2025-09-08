@@ -10,6 +10,7 @@ The RemoteMedia Processing SDK enables developers to create complex, real-time p
 
 - **Pythonic Pipeline API**: High-level, intuitive API for defining processing pipelines
 - **Transparent Remote Offloading**: Execute processing nodes remotely with minimal code changes
+- **Optional RunPod Integration**: Serverless GPU execution on RunPod infrastructure when cloud GPUs are needed
 - **Real-time A/V Processing**: Optimized for low-latency audio/video processing
 - **WebRTC Integration**: Built-in WebRTC support for real-time communication
 - **Flexible Architecture**: Support for both SDK-provided and custom processing nodes
@@ -79,6 +80,25 @@ pipeline = Pipeline(
 
 # When run, the pipeline will transparently execute the echo effect on the remote server.
 pipeline.run()
+```
+
+#### Optional: RunPod Cloud GPU Integration
+For cloud GPU execution, you can use RunPod as your remote execution provider:
+
+```python
+from remotemedia.remote import RunPodRemoteExecutorConfig
+
+# Configure RunPod execution (optional - for cloud GPU needs)
+runpod_config = RunPodRemoteExecutorConfig(
+    api_key="your_runpod_api_key",
+    endpoint_id="your_endpoint_id"
+)
+
+# Use with any node that needs GPU acceleration
+remote_node = RemoteObjectExecutionNode(
+    obj_to_execute=your_gpu_intensive_node,
+    remote_config=runpod_config
+)
 ```
 
 ## Installation

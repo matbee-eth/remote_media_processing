@@ -43,21 +43,150 @@ import cloudpickle
 import numpy as np
 
 
+class IdleMonitor:
+    """Monitor server idle time and trigger shutdown when idle."""
+    
+    def __init__(self, idle_timeout: int = 300):
+        """
+        Initialize idle monitor.
+        
+        Args:
+            idle_timeout: Seconds of idle time before shutdown (0 to disable)
+        """
+        self.idle_timeout = idle_timeout
+        self.last_activity = time.time()
+        self.shutdown_callback = None
+        self._monitor_task = None
+        self.enabled = idle_timeout > 0
+        self.logger = logging.getLogger(__name__)
+        
+        if self.enabled:
+            self.logger.info(f"Idle monitoring enabled with {idle_timeout}s timeout")
+        else:
+            self.logger.info("Idle monitoring disabled")
+    
+    def mark_activity(self, source="unknown"):
+        """Mark that the server was used."""
+        self.last_activity = time.time()
+        self.logger.info(f"Activity marked at {self.last_activity} (source: {source})")
+    
+    async def monitor_loop(self):
+        """Background task to monitor idle time."""
+        if not self.enabled:
+            return
+            
+        self.logger.info("Starting idle monitor loop")
+        
+        while True:
+            try:
+                await asyncio.sleep(30)  # Check every 30 seconds
+                
+                idle_time = time.time() - self.last_activity
+                self.logger.info(f"Server idle for {idle_time:.1f}s")
+                
+                if idle_time > self.idle_timeout:
+                    self.logger.info(f"Server idle for {idle_time:.1f}s, attempting to suspend pod...")
+                    
+                    # Try to suspend the RunPod pod instead of just stopping the server
+                    success = await self.suspend_runpod_pod()
+                    
+                    if success:
+                        self.logger.info("Pod suspension initiated")
+                        break
+                    else:
+                        self.logger.warning("Pod suspension failed, falling back to server shutdown")
+                        if self.shutdown_callback:
+                            await self.shutdown_callback()
+                        break
+                    
+            except asyncio.CancelledError:
+                self.logger.info("Idle monitor cancelled")
+                break
+            except Exception as e:
+                self.logger.error(f"Error in idle monitor: {e}")
+                await asyncio.sleep(60)
+    
+    def start(self, shutdown_callback):
+        """Start monitoring with shutdown callback."""
+        if self.enabled and not self._monitor_task:
+            self.shutdown_callback = shutdown_callback
+            self._monitor_task = asyncio.create_task(self.monitor_loop())
+            self.logger.info(f"Idle monitor task started (task: {self._monitor_task})")
+    
+    def stop(self):
+        """Stop monitoring."""
+        if self._monitor_task:
+            self._monitor_task.cancel()
+            self._monitor_task = None
+    
+    async def suspend_runpod_pod(self) -> bool:
+        """Suspend the RunPod pod using the RunPod API."""
+        try:
+            import os
+            api_key = os.environ.get('RUNPOD_API_KEY')
+            if not api_key:
+                self.logger.error("RUNPOD_API_KEY not found in environment")
+                return False
+            
+            # Get pod ID by finding our pod in the pod list
+            try:
+                import runpod
+                runpod.api_key = api_key
+                
+                # List all pods and find ours by name
+                pods = runpod.get_pods()
+                our_pod = None
+                
+                # Get pod name from environment variable (set by client)
+                pod_name = os.environ.get('RUNPOD_POD_NAME')
+                if pod_name:
+                    self.logger.info(f"Looking for pod with name: {pod_name}")
+                    for pod in pods:
+                        if (pod.get('name') == pod_name and 
+                            pod.get('desiredStatus') == 'RUNNING'):
+                            our_pod = pod
+                            break
+                else:
+                    self.logger.error("RUNPOD_POD_NAME not found in environment - cannot identify our pod")
+                
+                if our_pod:
+                    pod_id = our_pod.get('id')
+                    self.logger.info(f"Found our running pod: {pod_id}")
+                    
+                    # Suspend the pod using RunPod API
+                    self.logger.info(f"Stopping pod {pod_id}...")
+                    runpod.stop_pod(pod_id)
+                    self.logger.info(f"Pod {pod_id} stop command sent")
+                    return True
+                else:
+                    self.logger.error("Could not find our running pod in pod list")
+                    
+            except Exception as e:
+                self.logger.error(f"Failed to suspend pod via API: {e}")
+                    
+        except Exception as e:
+            self.logger.error(f"Failed to suspend pod: {e}")
+        
+        return False
+
+
 class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer):
     """
     gRPC servicer implementation for remote execution.
     """
     
-    def __init__(self, config: ServiceConfig):
+    def __init__(self, config: ServiceConfig, idle_monitor: IdleMonitor = None):
         """
         Initialize the remote execution servicer.
         
         Args:
             config: Service configuration
+            idle_monitor: Optional idle monitor for auto-shutdown
         """
         self.config = config
         self.executor = TaskExecutor(config)
         self.sandbox_manager = SandboxManager(config)
+        self.idle_monitor = idle_monitor
         self.start_time = time.time()
         self.request_count = 0
         self.success_count = 0
@@ -68,11 +197,17 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         self.logger = logging.getLogger(__name__)
         self.logger.info("RemoteExecutionServicer initialized")
     
+    def _mark_activity(self, source="unknown"):
+        """Mark activity for idle monitoring."""
+        if self.idle_monitor:
+            self.idle_monitor.mark_activity(source)
+    
     async def ExecuteNode(
         self, 
         request: execution_pb2.ExecuteNodeRequest, 
         context: grpc.aio.ServicerContext
     ) -> execution_pb2.ExecuteNodeResponse:
+        self._mark_activity("ExecuteNode")
         """
         Execute a predefined SDK node.
         
@@ -126,6 +261,7 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         request: execution_pb2.ExecuteCustomTaskRequest,
         context: grpc.aio.ServicerContext
     ) -> execution_pb2.ExecuteCustomTaskResponse:
+        self._mark_activity("ExecuteCustomTask")
         """
         Execute user-defined code (Phase 3 feature).
         
@@ -188,6 +324,7 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         context: grpc.aio.ServicerContext
     ) -> execution_pb2.ExecuteObjectMethodResponse:
         """Execute a method on a serialized object, using session management."""
+        self._mark_activity("ExecuteObjectMethod")
         self.logger.info("Executing ExecuteObjectMethod")
         
         session_id = request.session_id
@@ -267,6 +404,7 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         request_iterator: AsyncIterable[execution_pb2.StreamObjectRequest],
         context: grpc.aio.ServicerContext
     ) -> AsyncGenerator[execution_pb2.StreamObjectResponse, None]:
+        self._mark_activity("StreamObject")
         """
         Handle bidirectional streaming for a serialized object.
         """
@@ -425,6 +563,7 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         request_iterator: AsyncIterable[execution_pb2.StreamData],
         context: grpc.aio.ServicerContext
     ) -> AsyncGenerator[execution_pb2.StreamData, None]:
+        self._mark_activity("StreamNode")
         """
         Handle bidirectional streaming for a single node.
         
@@ -532,6 +671,8 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         request: execution_pb2.StatusRequest,
         context: grpc.aio.ServicerContext
     ) -> execution_pb2.StatusResponse:
+        # Don't mark activity for health checks - they shouldn't prevent idle timeout
+        # self._mark_activity("GetStatus")
         """
         Get service status and health information.
         
@@ -565,6 +706,7 @@ class RemoteExecutionServicer(execution_pb2_grpc.RemoteExecutionServiceServicer)
         request: execution_pb2.ListNodesRequest,
         context: grpc.aio.ServicerContext
     ) -> execution_pb2.ListNodesResponse:
+        self._mark_activity("ListNodes")
         """
         List available SDK nodes.
         
@@ -673,9 +815,19 @@ async def serve():
         ]
     )
     
-    # Add servicers
+    # Check for idle timeout from environment (only if client provides it)
+    idle_timeout = int(os.environ.get('IDLE_TIMEOUT', '0'))  # Default 0 = disabled
+    
+    # Create idle monitor (disabled by default)
+    idle_monitor = IdleMonitor(idle_timeout)
+    if idle_timeout > 0:
+        logger.info(f"Idle monitoring enabled with {idle_timeout}s timeout (client-configured)")
+    else:
+        logger.info("Idle monitoring disabled")
+    
+    # Add servicers with idle monitoring
     execution_pb2_grpc.add_RemoteExecutionServiceServicer_to_server(
-        RemoteExecutionServicer(config), server
+        RemoteExecutionServicer(config, idle_monitor), server
     )
     health_pb2_grpc.add_HealthServicer_to_server(HealthServicer(), server)
     
@@ -687,10 +839,23 @@ async def serve():
     logger.info(f"Starting RemoteMedia Execution Service on {listen_addr}")
     await server.start()
     
-    # Set up graceful shutdown
+    # Define shutdown function
+    async def shutdown():
+        logger.info("Initiating graceful shutdown due to idle timeout...")
+        await server.stop(grace=10)
+        logger.info("Server stopped due to idle timeout - exiting container")
+        # Exit with specific code to indicate idle timeout (not a crash)
+        import os
+        os._exit(0)  # Clean exit - don't restart
+    
+    # Start idle monitoring with shutdown callback
+    idle_monitor.start(shutdown)
+    
+    # Set up graceful shutdown for signals
     def signal_handler(signum, frame):
         logger.info(f"Received signal {signum}, shutting down...")
-        asyncio.create_task(server.stop(grace=10))
+        idle_monitor.stop()
+        asyncio.create_task(shutdown())
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
