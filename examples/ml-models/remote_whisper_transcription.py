@@ -73,7 +73,7 @@ async def main():
 
     # This example uses a pre-existing audio file.
     # 1. Create a dummy audio file for the example
-    dummy_audio_path = "examples/transcribe_demo.wav"
+    dummy_audio_path = "examples/media-files/transcribe_demo.wav"
 
     # 2. Create and configure the pipeline
     pipeline = Pipeline()

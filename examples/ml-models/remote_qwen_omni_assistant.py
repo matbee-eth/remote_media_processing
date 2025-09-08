@@ -87,7 +87,7 @@ async def main():
     
     # The source node reads the video and produces a stream of AV packets
     pipeline.add_node(LocalMediaReaderNode(
-        path="examples/draw.mp4"
+        path="examples/media-files/draw.mp4"
     ))
     
     # The RemoteObjectExecutionNode sends the local_qwen_instance to the server

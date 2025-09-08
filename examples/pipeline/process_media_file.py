@@ -18,7 +18,7 @@ from remotemedia.utils import setup_logging
 # --- Configuration ---
 # You may need to change this path to a media file on your system.
 # For example, a .mp4 or .mov file with audio and video.
-MEDIA_SOURCE_PATH = "examples/BigBuckBunny_320x180.mp4"
+MEDIA_SOURCE_PATH = "examples/media-files/BigBuckBunny_320x180.mp4"
 LOG_LEVEL = "INFO"
 
 

@@ -256,7 +256,7 @@ async def main():
     REMOTE_HOST = os.environ.get("REMOTE_HOST", "127.0.0.1")
     logger.info("=== Complete Utterance Ultravox Pipeline ===")
     
-    demo_audio_path = "examples/audio.wav"
+    demo_audio_path = "examples/media-files/audio.wav"
     
     pipeline = Pipeline()
     

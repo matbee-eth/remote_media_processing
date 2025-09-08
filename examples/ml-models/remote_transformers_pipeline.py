@@ -65,7 +65,7 @@ async def main():
 
     # This example uses a pre-existing audio file.
     # A suitable file would be a clear, single-channel WAV.
-    audio_path = "sample_audio.wav"
+    audio_path = "examples/media-files/transcribe_demo.wav"
     if not os.path.exists(audio_path):
         logging.error(
             f"Audio file not found: {audio_path}. "
@@ -117,8 +117,8 @@ async def main():
 
 if __name__ == "__main__":
     # Ensure a sample audio file exists for the demo
-    if not os.path.exists("sample_audio.wav"):
-        logging.warning("sample_audio.wav not found. Please add it to run the demo")
+    if not os.path.exists("examples/media-files/transcribe_demo.wav"):
+        logging.warning("transcribe_demo.wav not found in media-files. Please add it to run the demo")
     else:
         try:
             asyncio.run(main())

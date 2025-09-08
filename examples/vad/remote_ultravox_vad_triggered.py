@@ -349,7 +349,7 @@ async def main():
     logger.info("--- VAD-Triggered Ultravox: Generate only when speech ends ---")
 
     # Create demo audio
-    demo_audio_path = "examples/audio.wav"
+    demo_audio_path = "examples/media-files/audio.wav"
     pipeline = Pipeline()
 
     # Audio source

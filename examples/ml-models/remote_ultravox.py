@@ -82,7 +82,7 @@ async def main():
     REMOTE_HOST = os.environ.get("REMOTE_HOST", "127.0.0.1")
     logger.info("--- Running Remote Ultravox TTS ---")
 
-    dummy_audio_path = "examples/transcribe_demo.wav"
+    dummy_audio_path = "examples/media-files/transcribe_demo.wav"
     await create_dummy_audio_file(dummy_audio_path)
 
     pipeline = Pipeline()

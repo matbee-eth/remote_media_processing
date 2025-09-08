@@ -1,285 +1,160 @@
 # RemoteMedia SDK Examples
 
-This directory contains example applications and tests for the RemoteMedia SDK.
+This directory contains example applications demonstrating various features and capabilities of the RemoteMedia SDK. Examples are organized by feature area for easy navigation.
 
-## Simple Remote Execution Test
+## Directory Structure
 
-The `simple_remote_test.py` script demonstrates how to test the remote execution service with simple Python classes.
+### 📁 [pipeline/](pipeline/)
+Core pipeline functionality examples including basic setup, export, and media processing.
+
+### 📁 [remote/](remote/)
+Remote execution examples demonstrating gRPC communication, streaming, and CloudPickle serialization.
+
+### 📁 [ml-models/](ml-models/)
+Machine learning model integration examples including Whisper, Ultravox, Qwen, and generic Transformers pipelines.
+
+### 📁 [vad/](vad/)
+Voice Activity Detection examples for speech processing, buffering, and utterance collection.
+
+### 📁 [webrtc/](webrtc/)
+WebRTC integration examples for real-time audio/video streaming and conversation management.
+
+### 📁 [state/](state/)
+State management examples for multi-user scenarios and session persistence.
+
+### 📁 [nodejs/](nodejs/)
+JavaScript/Node.js client examples for integrating with the RemoteMedia SDK from JavaScript.
+
+### 📁 [media-files/](media-files/)
+Sample media files (audio, video) used by various examples.
+
+## Getting Started
 
 ### Prerequisites
 
-1. **Start the Remote Service**: The remote execution service must be running before running the test.
+1. **Install Dependencies**:
+```bash
+# From the project root
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
+# For ML examples
+pip install -r requirements-ml.txt
+```
+
+2. **Start the Remote Service** (for remote execution examples):
 ```bash
 # From the project root
 cd remote_service
 ./scripts/run.sh
 ```
 
-2. **Install Dependencies**: Make sure you have the required dependencies installed.
+## Quick Start Examples
 
+### Basic Pipeline
 ```bash
-# From the project root
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+python examples/pipeline/basic_pipeline.py
 ```
 
-### Running the Test
-
+### Simple Remote Test
 ```bash
-# From the project root
-python examples/simple_remote_test.py
+python examples/remote/simple_remote_test.py
 ```
 
-Or with help:
-
+### Voice Activity Detection
 ```bash
-python examples/simple_remote_test.py --help
+python examples/vad/test_vad_simple.py
 ```
 
-### What the Test Does
-
-The test performs the following operations:
-
-1. **Connection Test**: Verifies that it can connect to the remote execution service
-2. **Service Status**: Gets the service status and lists available nodes
-3. **Node Execution**: Tests executing a simple `PassThroughNode` remotely
-4. **Calculator Simulation**: Simulates running a custom Python class remotely
-
-### Expected Output
-
-When successful, you should see output like:
-
-```
-RemoteMedia Simple Remote Execution Test
-==================================================
-=== Testing Connection ===
-✓ Connected to remote service
-✓ Service status: 1
-✓ Available nodes: 6
-
-=== Testing Node Execution ===
-Sending: {'message': 'Hello remote!', 'timestamp': 1703123456.789, 'data': [1, 2, 3, 4, 5]}
-Received: {'message': 'Hello remote!', 'timestamp': 1703123456.789, 'data': [1, 2, 3, 4, 5]}
-✓ PassThroughNode test passed
-
-=== Testing Calculator Simulation ===
-Local: 10 + 5 = 15
-Local result: 15
-Simulating remote execution...
-Simulation result: {'class_name': 'SimpleCalculator', 'operation': 'add', 'args': [10, 5], 'expected': 15}
-✓ Calculator simulation completed
-  (Phase 3 will enable actual remote execution)
-
-==================================================
-TEST SUMMARY
-==================================================
-✓ Connection: PASS
-✓ Node Execution: PASS
-✓ Calculator Simulation: PASS
-
-Results: 3/3 tests passed
-🎉 All tests passed!
-```
-
-### Troubleshooting
-
-**Connection Failed**: Make sure the remote service is running on `localhost:50051`. Start it with:
+### ML Model (Whisper)
 ```bash
-cd remote_service && ./scripts/run.sh
+python examples/ml-models/whisper_transcription.py
 ```
 
-**Import Errors**: Make sure you're running from the project root and have installed dependencies:
-```bash
-pip install -r requirements.txt
-```
+## Feature Highlights
 
-**gRPC Errors**: The remote service may need time to start. Wait a few seconds and try again.
-
-### Current Limitations
-
-- **Phase 2 Implementation**: Currently, only SDK-defined nodes can be executed remotely
-- **Phase 3 Coming**: Actual user-defined Python class execution will be implemented in Phase 3
-- **Simulation Mode**: The calculator test currently simulates remote execution using PassThroughNode
-
-### Next Steps
-
-This test provides a foundation for:
-1. Validating the gRPC communication system
-2. Testing serialization and data flow
-3. Preparing for Phase 3 custom code execution
-4. Debugging remote execution issues
-
-## Remote Proxy Client Examples
-
-The RemoteProxyClient provides transparent remote execution for ANY Python object. Here are the example scripts:
-
-### simplest_proxy.py
-The simplest demonstration of RemoteProxyClient - shows how ANY object can be made remote with just one line:
-
-```bash
-python examples/simplest_proxy.py
-```
-
-Features demonstrated:
-- One-line remote object creation: `remote_obj = await client.create_proxy(obj)`
-- Works with calculators, todo lists, string processors
-- State persistence across method calls
-
-### simple_remote_proxy.py
-More comprehensive examples showing RemoteProxyClient with various object types:
-
-```bash
-python examples/simple_remote_proxy.py
-```
-
-Features demonstrated:
-- Simple counters and string processors
-- Math operations with numpy arrays
-- Stateful objects (todo lists)
-- Built-in Python objects
-
-### remote_proxy_example.py
-Advanced examples including decorator patterns and dynamic clients:
-
-```bash
-python examples/remote_proxy_example.py
-```
-
-Features demonstrated:
-- Manual proxy creation
-- Chained method calls
-- Alternative syntax approaches
-
-### minimal_proxy.py / ultra_simple_proxy.py
-Minimal examples focused on clarity:
-
-```bash
-python examples/minimal_proxy.py
-python examples/ultra_simple_proxy.py
-```
-
-### test_transparent_generators.py
-Demonstrates transparent handling of generator functions:
-
-```bash
-python examples/test_transparent_generators.py
-```
-
-Features demonstrated:
-- Regular generators automatically converted to lists
-- Async generators automatically converted to lists
-- No type checking needed - just use the results
-- Transparent and intuitive behavior
-
-### test_streaming_generators.py (NEW!)
-Demonstrates the new true streaming support for generators:
-
-```bash
-python examples/test_streaming_generators.py
-```
-
-Features demonstrated:
-- **True streaming**: Generators return proxy objects that fetch items on-demand
-- **Batched fetching**: Items fetched in configurable batches for performance
-- **Early termination**: Breaking from iteration properly closes server resources
-- **Memory efficient**: Only requested items are generated and transferred
-- **Error propagation**: Server-side errors in generators properly reach the client
-- **Works with both sync and async generators**
-
-Example output:
-```
-1. Testing sync generator streaming:
-   Got type: <class 'remotemedia.remote.generator_proxy.BatchedRemoteGeneratorProxy'>
-   [Client] Received: Chunk 1/5 from test.dat (1024 bytes)
-   [Client] Received: Chunk 2/5 from test.dat (1024 bytes)
-   ...
-
-3. Testing early termination:
-   [Client] Fib[0] = 0
-   [Client] Fib[1] = 1
-   [Client] Stopping early!
-   Only received 2 numbers (generator properly closed)
-```
-
-### test_all_method_types.py
-Comprehensive test of all Python method types:
-
-```bash
-python examples/test_all_method_types.py
-```
-
-Tests include:
-- Synchronous methods
-- Asynchronous methods
-- Generator functions
-- Async generator functions
-- Properties and attributes
-- Static methods
-- Special methods (`__str__`, `__call__`, etc.)
-
-### Key Concepts
-
-1. **Zero Setup**: No special base classes or interfaces required
-2. **Transparent Usage**: Methods are called exactly like local objects (just add `await`)
-3. **State Persistence**: Objects maintain their state on the remote server
-4. **Session Management**: Automatic session handling with unique IDs
-
-### Example Usage
+### Remote Execution
+The RemoteMedia SDK enables transparent remote execution of any Python object:
 
 ```python
 from remotemedia.remote import RemoteProxyClient
 from remotemedia.core.node import RemoteExecutorConfig
 
 config = RemoteExecutorConfig(host="localhost", port=50052)
-
 async with RemoteProxyClient(config) as client:
     # ANY object becomes remote with one line!
-    calculator = Calculator()
-    remote_calc = await client.create_proxy(calculator)
+    obj = MyComplexObject()
+    remote_obj = await client.create_proxy(obj)
     
-    # Use it normally (with await)
-    result = await remote_calc.add(5, 3)
-    print(f"Result: {result}")  # Executed remotely!
+    # Use exactly like the local object (just add await)
+    result = await remote_obj.process_data(input_data)
 ```
 
-### What Works Transparently
-
-The RemoteProxyClient handles these Python patterns automatically:
+### Pipeline Export
+Export pipeline definitions for use by JavaScript clients:
 
 ```python
-class Example:
-    def sync_method(self):
-        return "sync result"
-    
-    async def async_method(self):
-        return "async result"
-    
-    def method_with_kwargs(self, value, multiplier=2, add=0):
-        return value * multiplier + add
-    
-    def generator_method(self):
-        for i in range(3):
-            yield i
-    
-    @property
-    def my_property(self):
-        return "property value"
+from remotemedia import Pipeline
 
-# All work seamlessly:
-remote = await client.create_proxy(Example())
-sync_result = await remote.sync_method()        # Works!
-async_result = await remote.async_method()      # Works!
-
-# Keyword arguments work transparently! (NEW)
-result = await remote.method_with_kwargs(10, multiplier=3, add=5)  # = 35
-result2 = await remote.method_with_kwargs(10, add=15)  # Uses default multiplier=2, = 35
-
-gen_result = await remote.generator_method()    # Returns generator proxy!
-# Stream the generator results:
-async for item in gen_result:
-    print(item)  # Prints 0, 1, 2 as they're fetched
-prop_value = await remote.my_property           # Works!
+pipeline = Pipeline(name="MyPipeline")
+# ... add nodes ...
+definition = pipeline.export_definition()
+# Register with gRPC service for JavaScript access
 ```
 
-For more complex examples and integration tests, see the `tests/` directory. 
+### WebRTC Integration
+Real-time audio/video processing with WebRTC:
+
+```python
+from remotemedia.webrtc import WebRTCServer
+
+server = WebRTCServer()
+# Add pipeline for speech-to-speech processing
+await server.start()
+```
+
+## Advanced Features
+
+### Streaming Generators
+True streaming support with on-demand fetching:
+- Generators return proxy objects that stream data
+- Batched fetching for performance
+- Early termination support
+- Memory efficient
+
+### State Management
+Session-specific state for multi-user scenarios:
+- Automatic session isolation
+- State persistence across calls
+- Built-in node state management
+
+### ML Model Integration
+Support for popular ML frameworks:
+- Whisper (speech recognition)
+- Ultravox (speech-to-text)
+- Qwen (multimodal)
+- Transformers pipelines
+- Remote ML inference
+
+## Troubleshooting
+
+### Connection Issues
+- Ensure remote service is running: `cd remote_service && ./scripts/run.sh`
+- Check port availability (default: 50052)
+- Verify network connectivity
+
+### Import Errors
+- Install required dependencies: `pip install -r requirements.txt`
+- For ML models: `pip install -r requirements-ml.txt`
+- Run from project root directory
+
+### Media File Errors
+- Check media files exist in `media-files/` directory
+- Some examples generate dummy files if missing
+- You can provide your own media files
+
+## Learn More
+
+- See individual directory README files for detailed documentation
+- Check `tests/` directory for comprehensive test coverage
+- Review SDK documentation in the main README

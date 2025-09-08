@@ -62,7 +62,7 @@ async def test_without_vad():
     
     # Add nodes
     pipeline.add_node(MediaReaderNode(
-        path="examples/transcribe_demo.wav",
+        path="examples/media-files/transcribe_demo.wav",
         chunk_size=4096,
         name="MediaReader"
     ))
@@ -103,7 +103,7 @@ async def test_with_vad_passthrough():
     
     # Add nodes
     pipeline.add_node(MediaReaderNode(
-        path="examples/transcribe_demo.wav",
+        path="examples/media-files/transcribe_demo.wav",
         chunk_size=4096,
         name="MediaReader"
     ))
